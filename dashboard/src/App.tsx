@@ -1,479 +1,876 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
+import confetti from 'canvas-confetti';
 import {
   Shield,
-  Clock,
-  CheckCircle2,
-  Lock,
   Smartphone,
   Laptop,
-  MapPin,
+  Globe,
+  Clock,
+  CheckCircle2,
   AlertTriangle,
-  Flame,
+  Lock,
+  Unlock,
+  MapPin,
+  Camera,
+  Activity,
   Plus,
   Trash2,
-  Camera,
-  Activity
+  Search,
 } from 'lucide-react';
 
 interface BlockedApp {
   id: string;
   name: string;
   pkg: string;
-  platform: 'android' | 'macos';
+  category: 'Social' | 'Entertainment' | 'Gaming' | 'News';
+  isActive: boolean;
 }
 
 interface BlockedDomain {
   id: string;
   domain: string;
+  category: string;
+  isActive: boolean;
 }
 
-interface Task {
+interface TaskItem {
   id: string;
   title: string;
-  rewardMinutes: number;
-  evidence: 'none' | 'photo' | 'focus';
-  recurring: boolean;
-}
-
-interface Transaction {
-  id: string;
-  type: 'earn' | 'spend';
-  source: string;
-  minutes: number;
   description: string;
-  time: string;
+  rewardMins: number;
+  evidenceType: 'photo' | 'geofence' | 'timer' | 'none';
+  streak: number;
+  isCompletedToday: boolean;
 }
 
-export default function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'policy' | 'tasks' | 'geofence' | 'audit'>('overview');
-  const [balanceMinutes, setBalanceMinutes] = useState(60);
-  const maxMinutes = 240;
+interface LedgerEntry {
+  id: string;
+  type: 'EARN' | 'SPEND' | 'EMERGENCY' | 'SYNC';
+  description: string;
+  deltaMins: number;
+  balanceAfterMins: number;
+  timestamp: string;
+  signature: string;
+}
 
-  // Policy State
+export function App() {
+  // Navigation
+  const [activeTab, setActiveTab] = useState<'policy' | 'geofence' | 'tasks' | 'ledger'>('policy');
+
+  // Time Bank State
+  const [balanceMins, setBalanceMins] = useState(60);
+  const maxCapacityMins = 240;
+
+  // Active Lease State
+  const [activeLease, setActiveLease] = useState<{
+    target: string;
+    type: 'app' | 'site';
+    secondsRemaining: number;
+    isEmergency: boolean;
+  } | null>(null);
+
+  // Policy Data
   const [blockedApps, setBlockedApps] = useState<BlockedApp[]>([
-    { id: '1', name: 'Instagram', pkg: 'com.instagram.android', platform: 'android' },
-    { id: '2', name: 'TikTok', pkg: 'com.zhiliaoapp.musically', platform: 'android' },
-    { id: '3', name: 'Twitter / X', pkg: 'com.twitter.android', platform: 'android' },
+    { id: '1', name: 'Instagram', pkg: 'com.instagram.android', category: 'Social', isActive: true },
+    { id: '2', name: 'YouTube', pkg: 'com.google.android.youtube', category: 'Entertainment', isActive: true },
+    { id: '3', name: 'TikTok', pkg: 'com.zhiliaoapp.musically', category: 'Social', isActive: true },
+    { id: '4', name: 'X / Twitter', pkg: 'com.twitter.android', category: 'Social', isActive: true },
+    { id: '5', name: 'Reddit', pkg: 'com.reddit.frontpage', category: 'News', isActive: true },
+    { id: '6', name: 'Netflix', pkg: 'com.netflix.mediaclient', category: 'Entertainment', isActive: true },
   ]);
-  const [newAppName, setNewAppName] = useState('');
-  const [newAppPkg, setNewAppPkg] = useState('');
 
   const [blockedDomains, setBlockedDomains] = useState<BlockedDomain[]>([
-    { id: '1', domain: 'reddit.com' },
-    { id: '2', domain: 'youtube.com' },
-    { id: '3', domain: 'x.com' },
-  ]);
-  const [newDomain, setNewDomain] = useState('');
-
-  // Tasks State
-  const [tasks, setTasks] = useState<Task[]>([
-    { id: '1', title: 'Read 20 pages of non-fiction', rewardMinutes: 20, evidence: 'photo', recurring: true },
-    { id: '2', title: 'Deep Work Session (45m)', rewardMinutes: 45, evidence: 'focus', recurring: true },
-    { id: '3', title: 'Review System Architecture', rewardMinutes: 15, evidence: 'none', recurring: false },
-  ]);
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskReward, setNewTaskReward] = useState(15);
-  const [newTaskEvidence, setNewTaskEvidence] = useState<'none' | 'photo' | 'focus'>('none');
-
-  // Transactions State
-  const [transactions, setTransactions] = useState<Transaction[]>([
-    { id: 't1', type: 'earn', source: 'gym', minutes: 60, description: 'Verified gym workout (45 min)', time: '10:30 AM' },
-    { id: 't2', type: 'spend', source: 'usage', minutes: 15, description: 'Unlocked Instagram', time: '12:15 PM' },
-    { id: 't3', type: 'earn', source: 'task', minutes: 20, description: 'Completed: Read 20 pages', time: '02:00 PM' },
-    { id: 't4', type: 'spend', source: 'emergency', minutes: 15, description: 'Emergency Unlock YouTube (3x penalty for 5m)', time: '04:45 PM' },
+    { id: '1', domain: 'instagram.com', category: 'Social', isActive: true },
+    { id: '2', domain: 'youtube.com', category: 'Video', isActive: true },
+    { id: '3', domain: 'tiktok.com', category: 'Social', isActive: true },
+    { id: '4', domain: 'twitter.com', category: 'Social', isActive: true },
+    { id: '5', domain: 'x.com', category: 'Social', isActive: true },
+    { id: '6', domain: 'reddit.com', category: 'Discussion', isActive: true },
   ]);
 
-  // Handlers
-  const handleAddApp = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newAppName || !newAppPkg) return;
-    setBlockedApps([...blockedApps, { id: Date.now().toString(), name: newAppName, pkg: newAppPkg, platform: 'android' }]);
-    setNewAppName('');
-    setNewAppPkg('');
+  // Search & Filter
+  const [searchQuery, setSearchQuery] = useState('');
+  const [newTargetInput, setNewTargetInput] = useState('');
+  const [newTargetType, setNewTargetType] = useState<'app' | 'site'>('app');
+
+  // Tasks
+  const [tasks, setTasks] = useState<TaskItem[]>([
+    {
+      id: 't-1',
+      title: 'Morning Gym & Strength Training',
+      description: '30+ min workout verified via real-time camera proof',
+      rewardMins: 45,
+      evidenceType: 'photo',
+      streak: 6,
+      isCompletedToday: false,
+    },
+    {
+      id: 't-2',
+      title: 'Deep Engineering Sprint',
+      description: '45 mins of uninterrupted architecture design',
+      rewardMins: 30,
+      evidenceType: 'timer',
+      streak: 12,
+      isCompletedToday: true,
+    },
+    {
+      id: 't-3',
+      title: 'Read 20 Pages of Non-Fiction',
+      description: 'Reading session verified with photo timestamp',
+      rewardMins: 20,
+      evidenceType: 'photo',
+      streak: 4,
+      isCompletedToday: false,
+    },
+  ]);
+
+  // Ledger History
+  const [ledger, setLedger] = useState<LedgerEntry[]>([
+    {
+      id: 'tx-1',
+      type: 'EARN',
+      description: 'Completed Task: Deep Engineering Sprint (45m)',
+      deltaMins: 30,
+      balanceAfterMins: 60,
+      timestamp: 'Just now',
+      signature: 'hmac-sha256-8f3a9e...e7b1',
+    },
+    {
+      id: 'tx-2',
+      type: 'SPEND',
+      description: 'Unlocked YouTube (5m lease on Android)',
+      deltaMins: -5,
+      balanceAfterMins: 30,
+      timestamp: '2 hours ago',
+      signature: 'hmac-sha256-2b4c1d...a94f',
+    },
+    {
+      id: 'tx-3',
+      type: 'EARN',
+      description: 'Gym Geofence Dwell (42 mins at Strength Club)',
+      deltaMins: 35,
+      balanceAfterMins: 35,
+      timestamp: 'Today 07:15 AM',
+      signature: 'hmac-sha256-5e8a2b...c38d',
+    },
+  ]);
+
+  // Active Lease Timer Countdown
+  useEffect(() => {
+    if (!activeLease) return;
+    const interval = setInterval(() => {
+      setActiveLease((prev) => {
+        if (!prev) return null;
+        if (prev.secondsRemaining <= 1) {
+          return null;
+        }
+        return { ...prev, secondsRemaining: prev.secondsRemaining - 1 };
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [activeLease]);
+
+  // Handle Unlock
+  const handleUnlock = (target: string, type: 'app' | 'site', mins: number, isEmergency: boolean) => {
+    const cost = isEmergency ? mins * 3 : mins;
+    if (!isEmergency && balanceMins < cost) {
+      alert(`Insufficient balance! You have ${balanceMins}m, but this unlock requires ${cost}m.`);
+      return;
+    }
+
+    setBalanceMins((prev) => Math.max(0, prev - cost));
+    setActiveLease({
+      target,
+      type,
+      secondsRemaining: mins * 60,
+      isEmergency,
+    });
+
+    const newTx: LedgerEntry = {
+      id: `tx-${Date.now()}`,
+      type: isEmergency ? 'EMERGENCY' : 'SPEND',
+      description: `${isEmergency ? '🚨 Emergency' : '🔓 Temporary'} unlock for ${target} (${mins}m)`,
+      deltaMins: -cost,
+      balanceAfterMins: Math.max(0, balanceMins - cost),
+      timestamp: 'Just now',
+      signature: `hmac-sha256-${Math.random().toString(36).substring(2, 10)}...signed`,
+    };
+
+    setLedger((prev) => [newTx, ...prev]);
   };
 
-  const handleAddDomain = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newDomain) return;
-    setBlockedDomains([...blockedDomains, { id: Date.now().toString(), domain: newDomain.toLowerCase().trim() }]);
-    setNewDomain('');
+  // Complete Task with Confetti
+  const handleCompleteTask = (taskId: string) => {
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task || task.isCompletedToday) return;
+
+    confetti({
+      particleCount: 80,
+      spread: 70,
+      origin: { y: 0.6 },
+      colors: ['#38bdf8', '#22c55e', '#6366f1'],
+    });
+
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId ? { ...t, isCompletedToday: true, streak: t.streak + 1 } : t
+      )
+    );
+
+    const newBalance = Math.min(maxCapacityMins, balanceMins + task.rewardMins);
+    setBalanceMins(newBalance);
+
+    const newTx: LedgerEntry = {
+      id: `tx-${Date.now()}`,
+      type: 'EARN',
+      description: `Task Verified: ${task.title} (+${task.rewardMins}m)`,
+      deltaMins: task.rewardMins,
+      balanceAfterMins: newBalance,
+      timestamp: 'Just now',
+      signature: `hmac-sha256-proof-${Math.random().toString(36).substring(2, 10)}`,
+    };
+
+    setLedger((prev) => [newTx, ...prev]);
   };
 
-  const handleAddTask = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTaskTitle) return;
-    setTasks([...tasks, { id: Date.now().toString(), title: newTaskTitle, rewardMinutes: newTaskReward, evidence: newTaskEvidence, recurring: true }]);
-    setNewTaskTitle('');
-  };
+  const filteredApps = blockedApps.filter(
+    (a) =>
+      a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      a.pkg.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
-  const handleCompleteTask = (task: Task) => {
-    setBalanceMinutes((prev) => Math.min(maxMinutes, prev + task.rewardMinutes));
-    setTransactions([
-      {
-        id: Date.now().toString(),
-        type: 'earn',
-        source: 'task',
-        minutes: task.rewardMinutes,
-        description: `Completed: ${task.title}`,
-        time: 'Just now'
-      },
-      ...transactions
-    ]);
-  };
+  const filteredDomains = blockedDomains.filter((d) =>
+    d.domain.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
-      {/* Header */}
-      <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="p-2 bg-brand-cyan/10 border border-brand-cyan/30 rounded-xl text-brand-cyan">
-              <Shield className="w-5 h-5" />
+    <div className="relative min-h-[100dvh] bg-[#030712] text-white selection:bg-cyan-500/20 selection:text-cyan-200">
+      <div className="ambient-mesh" />
+
+      {/* Top Floating Glass Island Header */}
+      <header className="sticky top-4 z-40 max-w-7xl mx-auto px-4 sm:px-6">
+        <div className="glass-panel rounded-full px-5 py-3 flex items-center justify-between shadow-2xl">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center shadow-glow-cyan">
+              <Shield className="w-5 h-5 text-white" />
             </div>
             <div>
-              <span className="font-bold text-lg tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
-                DisciplineOS
-              </span>
-              <span className="ml-2 text-xs font-mono px-2 py-0.5 rounded-full bg-brand-cyan/10 border border-brand-cyan/20 text-brand-cyan">
-                v1.0-live
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="font-bold tracking-tight text-white text-base">DisciplineOS</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wider uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                  Live
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 hidden sm:block">
+                Authoritative Cross-Device Focus Engine
+              </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-6">
-            {/* Live Balance Pill */}
-            <div className="flex items-center space-x-3 bg-slate-800/60 border border-slate-700/60 rounded-xl px-4 py-1.5">
-              <Clock className="w-4 h-4 text-brand-cyan" />
-              <div className="text-right">
-                <div className="text-sm font-bold text-white font-mono">{balanceMinutes} mins available</div>
-                <div className="text-[10px] text-slate-400">Cap: {maxMinutes} mins</div>
-              </div>
+          {/* Connected Device Ticker */}
+          <div className="flex items-center gap-2 sm:gap-4">
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.03] border border-white/[0.06] text-[12px] text-slate-300">
+              <Smartphone className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden md:inline font-mono">Pixel 9 Pro</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             </div>
 
-            {/* Sync Badge */}
-            <div className="hidden sm:flex items-center space-x-2 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>3 Devices Enforced</span>
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.03] border border-white/[0.06] text-[12px] text-slate-300">
+              <Laptop className="w-3.5 h-3.5 text-indigo-400" />
+              <span className="hidden md:inline font-mono">MacBook Air</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            </div>
+
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/[0.03] border border-white/[0.06] text-[12px] text-slate-300">
+              <Globe className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden md:inline font-mono">Railway Node</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             </div>
           </div>
         </div>
       </header>
 
-      {/* Main Content Layout */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        {/* Navigation Sidebar */}
-        <aside className="lg:col-span-3 space-y-2">
-          <nav className="space-y-1">
+      {/* Main Content Area */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 pt-8 pb-20 relative z-10">
+        {/* Active Distraction Lease Banner */}
+        <AnimatePresence>
+          {activeLease && (
+            <motion.div
+              initial={{ opacity: 0, y: -20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -20, scale: 0.98 }}
+              className="mb-8 p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/30 backdrop-blur-xl flex flex-wrap items-center justify-between gap-4"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-400 shadow-glow-amber">
+                  <Unlock className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-white text-sm">
+                      Active Distraction Session Unlocked
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] uppercase font-mono font-bold bg-amber-500/20 text-amber-300">
+                      Global Lock Active
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Target: <span className="text-amber-300 font-mono">{activeLease.target}</span>{' '}
+                    ({activeLease.type === 'app' ? 'Package' : 'Domain'})
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4">
+                <div className="text-right">
+                  <div className="text-2xl font-mono font-bold text-amber-400 tracking-wider">
+                    {Math.floor(activeLease.secondsRemaining / 60)}:
+                    {(activeLease.secondsRemaining % 60).toString().padStart(2, '0')}
+                  </div>
+                  <span className="text-[10px] text-slate-400">Time Remaining</span>
+                </div>
+                <button
+                  onClick={() => setActiveLease(null)}
+                  className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-white border border-white/10 transition-colors"
+                >
+                  Lock Now
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Hero HUD — Central Time Bank Vault & Physical Status */}
+        <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-10">
+          {/* Main Time Bank Vault */}
+          <div className="lg:col-span-8 double-bezel">
+            <div className="double-bezel-inner flex flex-col md:flex-row items-center justify-between gap-8">
+              <div className="flex-1 space-y-4">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                    Vault Reserve
+                  </span>
+                  <span className="text-xs text-slate-400 font-mono">Immutable Ledger Backed</span>
+                </div>
+
+                <div>
+                  <div className="flex items-baseline gap-3">
+                    <span className="text-5xl sm:text-6xl font-extrabold text-white tracking-tight font-sans">
+                      {balanceMins}
+                    </span>
+                    <span className="text-xl font-medium text-slate-400">/ {maxCapacityMins} mins</span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Available distraction allowance across all synced devices.
+                  </p>
+                </div>
+
+                {/* Progress Meter Bar */}
+                <div className="space-y-1.5">
+                  <div className="h-2.5 w-full bg-slate-900 rounded-full overflow-hidden p-0.5 border border-white/[0.08]">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${(balanceMins / maxCapacityMins) * 100}%` }}
+                      transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
+                      className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 shadow-glow-cyan"
+                    />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                    <span>0m</span>
+                    <span>Cap: 240m (4 Hours Strict Limit)</span>
+                  </div>
+                </div>
+
+                {/* Quick Simulation Actions */}
+                <div className="flex flex-wrap gap-2 pt-2">
+                  <button
+                    onClick={() => {
+                      confetti({ particleCount: 30, spread: 50 });
+                      setBalanceMins((b) => Math.min(maxCapacityMins, b + 15));
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 text-xs font-medium transition-colors flex items-center gap-1.5"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> +15m Sprint Reward
+                  </button>
+                  <button
+                    onClick={() => handleUnlock('instagram.com', 'site', 5, false)}
+                    className="px-3 py-1.5 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 text-xs font-medium transition-colors flex items-center gap-1.5"
+                  >
+                    <Clock className="w-3.5 h-3.5" /> Test 5m Unlock
+                  </button>
+                </div>
+              </div>
+
+              {/* Holographic Radial Status Arc */}
+              <div className="relative w-44 h-44 flex items-center justify-center flex-shrink-0">
+                <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="40"
+                    className="stroke-slate-800/80"
+                    strokeWidth="8"
+                    fill="transparent"
+                  />
+                  <circle
+                    cx="50"
+                    cy="50"
+                    r="40"
+                    className="stroke-cyan-400 transition-all duration-1000 ease-out"
+                    strokeWidth="8"
+                    strokeDasharray={251.2}
+                    strokeDashoffset={251.2 - (251.2 * balanceMins) / maxCapacityMins}
+                    strokeLinecap="round"
+                    fill="transparent"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                  <Lock className="w-6 h-6 text-cyan-400 mb-1" />
+                  <span className="text-xs font-bold text-white uppercase tracking-wider">
+                    Enforced
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">Zero Bypass</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Security & Penalty Matrix */}
+          <div className="lg:col-span-4 space-y-4">
+            <div className="double-bezel">
+              <div className="double-bezel-inner space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-300">Emergency Protocol</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-rose-500/20 text-rose-300">
+                    3.0x Multiplier
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Need to bypass a lock when balance is empty? Emergency unlocks penalize 3x cost
+                  from your future balance.
+                </p>
+                <button
+                  onClick={() => {
+                    if (confirm('🚨 Emergency unlock charges 3x penalty (15 mins cost for 5 mins). Proceed?')) {
+                      handleUnlock('Emergency Override', 'app', 5, true);
+                    }
+                  }}
+                  className="w-full py-2 px-3 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-semibold transition-colors flex items-center justify-center gap-2"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" /> Trigger Emergency Unlock
+                </button>
+              </div>
+            </div>
+
+            <div className="double-bezel">
+              <div className="double-bezel-inner flex items-center justify-between">
+                <div>
+                  <h4 className="text-xs font-semibold text-white">Cryptographic Outbox</h4>
+                  <p className="text-[11px] text-slate-400 font-mono">HMAC-SHA256 Signed</p>
+                </div>
+                <div className="flex items-center gap-1 text-emerald-400 text-xs font-mono">
+                  <CheckCircle2 className="w-4 h-4" /> 100% Synced
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Navigation Tabs (Glass Island Pill) */}
+        <div className="flex justify-center mb-8">
+          <div className="glass-panel p-1.5 rounded-2xl flex items-center gap-1 shadow-xl">
             {[
-              { id: 'overview', label: 'Overview & Ledger', icon: Activity },
-              { id: 'policy', label: 'Distraction Policy', icon: Lock },
-              { id: 'tasks', label: 'Tasks & Habits', icon: CheckCircle2 },
-              { id: 'geofence', label: 'Geofences & Zones', icon: MapPin },
-              { id: 'audit', label: 'Audit & Tamper Log', icon: AlertTriangle },
+              { id: 'policy', label: 'Policy Engine', icon: Shield },
+              { id: 'geofence', label: 'Geofence Radar', icon: MapPin },
+              { id: 'tasks', label: 'Tasks & Habits', icon: Activity },
+              { id: 'ledger', label: 'Ledger Audit', icon: Clock },
             ].map((tab) => {
               const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
+              const isSelected = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-                    isActive
-                      ? 'bg-brand-blue text-white shadow-lg shadow-brand-blue/25 font-semibold'
-                      : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+                  className={`relative px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-300 flex items-center gap-2 ${
+                    isSelected
+                      ? 'text-white shadow-glow-cyan'
+                      : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.04]'
                   }`}
                 >
-                  <Icon className="w-4 h-4" />
-                  <span>{tab.label}</span>
+                  {isSelected && (
+                    <motion.div
+                      layoutId="activeTabPill"
+                      className="absolute inset-0 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-xl"
+                      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+                    />
+                  )}
+                  <span className="relative z-10 flex items-center gap-2">
+                    <Icon className="w-4 h-4" />
+                    {tab.label}
+                  </span>
                 </button>
               );
             })}
-          </nav>
-
-          {/* Connected Hardware Card */}
-          <div className="pt-6 border-t border-slate-800/80">
-            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 px-2">Connected Devices</h4>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/40 border border-slate-800/80 text-xs">
-                <div className="flex items-center space-x-2">
-                  <Smartphone className="w-4 h-4 text-brand-cyan" />
-                  <span>Pixel 8 Pro (Phone)</span>
-                </div>
-                <span className="text-emerald-400">Locked</span>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/40 border border-slate-800/80 text-xs">
-                <div className="flex items-center space-x-2">
-                  <Smartphone className="w-4 h-4 text-brand-cyan" />
-                  <span>Pixel Tablet</span>
-                </div>
-                <span className="text-emerald-400">Locked</span>
-              </div>
-              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900/40 border border-slate-800/80 text-xs">
-                <div className="flex items-center space-x-2">
-                  <Laptop className="w-4 h-4 text-brand-cyan" />
-                  <span>MacBook Air (M3)</span>
-                </div>
-                <span className="text-emerald-400">Locked</span>
-              </div>
-            </div>
           </div>
-        </aside>
+        </div>
 
-        {/* Dynamic Main Pane */}
-        <main className="lg:col-span-9 space-y-6">
-
-          {/* TAB 1: OVERVIEW & LEDGER */}
-          {activeTab === 'overview' && (
-            <div className="space-y-6">
-              {/* Stat Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800">
-                  <div className="text-xs font-medium text-slate-400 mb-1">Time Bank Balance</div>
-                  <div className="text-3xl font-bold text-brand-cyan font-mono">{balanceMinutes} <span className="text-sm font-normal text-slate-400">mins</span></div>
-                  <div className="mt-3 text-xs text-slate-500 flex items-center space-x-1">
-                    <Flame className="w-3.5 h-3.5 text-brand-emerald" />
-                    <span>Earned from verified gym & tasks</span>
-                  </div>
-                </div>
-
-                <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800">
-                  <div className="text-xs font-medium text-slate-400 mb-1">Single Active Session Lock</div>
-                  <div className="text-xl font-bold text-emerald-400 font-mono mt-1">Zero Active</div>
-                  <div className="mt-3 text-xs text-slate-400">No distraction leases running</div>
-                </div>
-
-                <div className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800">
-                  <div className="text-xs font-medium text-slate-400 mb-1">Offline Device Reserve</div>
-                  <div className="text-xl font-bold text-white font-mono mt-1">30 mins <span className="text-xs text-slate-400">(Phone)</span></div>
-                  <div className="mt-3 text-xs text-slate-500">Autonomous offline spending ready</div>
-                </div>
-              </div>
-
-              {/* Transactions Ledger */}
-              <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-base text-white">Immutable Ledger Transactions</h3>
-                  <span className="text-xs text-slate-400 font-mono">Real-time Append Only</span>
-                </div>
-
-                <div className="divide-y divide-slate-800/80">
-                  {transactions.map((tx) => (
-                    <div key={tx.id} className="py-3 flex items-center justify-between text-sm">
-                      <div className="flex items-center space-x-3">
-                        <span className={`w-2 h-2 rounded-full ${tx.type === 'earn' ? 'bg-emerald-400' : 'bg-brand-rose'}`} />
-                        <div>
-                          <div className="font-medium text-slate-200">{tx.description}</div>
-                          <div className="text-xs text-slate-500 capitalize">{tx.source} • {tx.time}</div>
-                        </div>
-                      </div>
-                      <div className={`font-mono font-bold ${tx.type === 'earn' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {tx.type === 'earn' ? `+${tx.minutes}m` : `-${tx.minutes}m`}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 2: POLICY MANAGEMENT */}
-          {activeTab === 'policy' && (
-            <div className="space-y-6">
-              {/* Blocked Apps */}
-              <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4">
-                <h3 className="font-semibold text-base text-white">Blocked Applications</h3>
-                <form onSubmit={handleAddApp} className="flex gap-3">
+        {/* Tab 1: Policy Engine & Shields */}
+        {activeTab === 'policy' && (
+          <motion.div
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+          >
+            {/* Search & Add Target Bar */}
+            <div className="double-bezel">
+              <div className="double-bezel-inner flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="relative flex-1 w-full">
+                  <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                   <input
                     type="text"
-                    placeholder="App Name (e.g. Reddit)"
-                    value={newAppName}
-                    onChange={(e) => setNewAppName(e.target.value)}
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-brand-cyan"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search blocked apps or domains (e.g. YouTube, reddit.com)..."
+                    className="w-full pl-10 pr-4 py-2 rounded-xl bg-slate-900/90 border border-white/[0.08] text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500/50"
                   />
-                  <input
-                    type="text"
-                    placeholder="Package (e.g. com.reddit.frontpage)"
-                    value={newAppPkg}
-                    onChange={(e) => setNewAppPkg(e.target.value)}
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-brand-cyan"
-                  />
-                  <button type="submit" className="bg-brand-blue text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-blue-600 flex items-center space-x-1">
-                    <Plus className="w-4 h-4" />
-                    <span>Block App</span>
-                  </button>
-                </form>
-
-                <div className="space-y-2">
-                  {blockedApps.map((app) => (
-                    <div key={app.id} className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800/80">
-                      <div>
-                        <span className="font-medium text-sm text-slate-200">{app.name}</span>
-                        <span className="ml-2 text-xs font-mono text-slate-500">({app.pkg})</span>
-                      </div>
-                      <button
-                        onClick={() => setBlockedApps(blockedApps.filter((a) => a.id !== app.id))}
-                        className="text-slate-500 hover:text-rose-400 p-1"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
                 </div>
-              </div>
 
-              {/* Blocked Websites */}
-              <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4">
-                <h3 className="font-semibold text-base text-white">Blocked Domains (DNS Filtering)</h3>
-                <form onSubmit={handleAddDomain} className="flex gap-3">
-                  <input
-                    type="text"
-                    placeholder="Domain (e.g. twitter.com)"
-                    value={newDomain}
-                    onChange={(e) => setNewDomain(e.target.value)}
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-brand-cyan"
-                  />
-                  <button type="submit" className="bg-brand-blue text-white px-4 py-2 rounded-xl text-sm font-medium hover:bg-blue-600 flex items-center space-x-1">
-                    <Plus className="w-4 h-4" />
-                    <span>Block Domain</span>
-                  </button>
-                </form>
-
-                <div className="space-y-2">
-                  {blockedDomains.map((domain) => (
-                    <div key={domain.id} className="flex items-center justify-between p-3 rounded-xl bg-slate-950 border border-slate-800/80">
-                      <span className="font-medium text-sm font-mono text-slate-200">{domain.domain}</span>
-                      <button
-                        onClick={() => setBlockedDomains(blockedDomains.filter((d) => d.id !== domain.id))}
-                        className="text-slate-500 hover:text-rose-400 p-1"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: TASKS & HABITS */}
-          {activeTab === 'tasks' && (
-            <div className="space-y-6">
-              <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4">
-                <h3 className="font-semibold text-base text-white">Add Productivity Task</h3>
-                <form onSubmit={handleAddTask} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                  <input
-                    type="text"
-                    placeholder="Task Title (e.g. Morning Workout)"
-                    value={newTaskTitle}
-                    onChange={(e) => setNewTaskTitle(e.target.value)}
-                    className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-brand-cyan"
-                  />
-                  <input
-                    type="number"
-                    min="5"
-                    max="120"
-                    placeholder="Reward Mins"
-                    value={newTaskReward}
-                    onChange={(e) => setNewTaskReward(Number(e.target.value))}
-                    className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-brand-cyan"
-                  />
+                <div className="flex items-center gap-2 w-full sm:w-auto">
                   <select
-                    value={newTaskEvidence}
-                    onChange={(e) => setNewTaskEvidence(e.target.value as any)}
-                    className="bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-brand-cyan"
+                    value={newTargetType}
+                    onChange={(e) => setNewTargetType(e.target.value as any)}
+                    className="px-3 py-2 rounded-xl bg-slate-900 border border-white/[0.08] text-xs text-slate-300 focus:outline-none"
                   >
-                    <option value="none">No Photo Required</option>
-                    <option value="photo">Live Camera Proof Required</option>
-                    <option value="focus">Focus Timer Session</option>
+                    <option value="app">App Package</option>
+                    <option value="site">Website Domain</option>
                   </select>
-                  <button type="submit" className="bg-brand-emerald text-slate-950 font-bold px-4 py-2 rounded-xl text-sm hover:bg-emerald-400 flex items-center justify-center space-x-1">
-                    <Plus className="w-4 h-4" />
-                    <span>Create Task (+{newTaskReward}m)</span>
+                  <input
+                    type="text"
+                    value={newTargetInput}
+                    onChange={(e) => setNewTargetInput(e.target.value)}
+                    placeholder={newTargetType === 'app' ? 'com.app.name' : 'domain.com'}
+                    className="px-3 py-2 rounded-xl bg-slate-900 border border-white/[0.08] text-xs text-slate-200 focus:outline-none flex-1 sm:w-48"
+                  />
+                  <button
+                    onClick={() => {
+                      if (!newTargetInput.trim()) return;
+                      if (newTargetType === 'app') {
+                        setBlockedApps((prev) => [
+                          ...prev,
+                          {
+                            id: `app-${Date.now()}`,
+                            name: newTargetInput.split('.').pop() || newTargetInput,
+                            pkg: newTargetInput.trim(),
+                            category: 'Social',
+                            isActive: true,
+                          },
+                        ]);
+                      } else {
+                        setBlockedDomains((prev) => [
+                          ...prev,
+                          {
+                            id: `site-${Date.now()}`,
+                            domain: newTargetInput.trim().toLowerCase(),
+                            category: 'Web',
+                            isActive: true,
+                          },
+                        ]);
+                      }
+                      setNewTargetInput('');
+                    }}
+                    className="px-4 py-2 rounded-xl bg-cyan-400 hover:bg-cyan-300 text-black font-extrabold text-xs flex items-center gap-1.5 transition-colors shadow-glow-cyan"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Add
                   </button>
-                </form>
+                </div>
+              </div>
+            </div>
 
-                <div className="space-y-3 pt-2">
-                  {tasks.map((task) => (
-                    <div key={task.id} className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
-                      <div>
-                        <div className="font-semibold text-sm text-slate-100">{task.title}</div>
-                        <div className="text-xs text-slate-400 flex items-center space-x-2 mt-1">
-                          <span className="text-emerald-400 font-bold">+{task.rewardMinutes} mins reward</span>
-                          {task.evidence === 'photo' && (
-                            <span className="flex items-center space-x-1 text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md">
-                              <Camera className="w-3 h-3" />
-                              <span>Live Photo Proof</span>
+            {/* Blocked Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Blocked Applications Column */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between px-2">
+                  <div className="flex items-center gap-2">
+                    <Smartphone className="w-4 h-4 text-cyan-400" />
+                    <h3 className="text-sm font-bold text-white">Blocked Apps ({filteredApps.length})</h3>
+                  </div>
+                  <span className="text-[11px] text-slate-400 font-mono">Enforced via UsageStats</span>
+                </div>
+
+                <div className="space-y-2.5">
+                  {filteredApps.map((app) => (
+                    <div key={app.id} className="double-bezel group">
+                      <div className="double-bezel-inner flex items-center justify-between p-3.5">
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold text-white">{app.name}</span>
+                            <span className="px-2 py-0.5 rounded text-[9px] font-mono bg-slate-800 text-slate-400">
+                              {app.category}
                             </span>
-                          )}
+                          </div>
+                          <p className="text-[11px] text-slate-500 font-mono">{app.pkg}</p>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleUnlock(app.name, 'app', 5, false)}
+                            className="px-3 py-1 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/20 text-[11px] font-semibold transition-colors"
+                          >
+                            Unlock 5m
+                          </button>
+                          <button
+                            onClick={() =>
+                              setBlockedApps((prev) => prev.filter((a) => a.id !== app.id))
+                            }
+                            className="p-1 text-slate-500 hover:text-rose-400 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
-                      <button
-                        onClick={() => handleCompleteTask(task)}
-                        className="bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-semibold"
-                      >
-                        Mark Complete
-                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Blocked Domains Column */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between px-2">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-indigo-400" />
+                    <h3 className="text-sm font-bold text-white">
+                      Blocked Websites ({filteredDomains.length})
+                    </h3>
+                  </div>
+                  <span className="text-[11px] text-slate-400 font-mono">Enforced via DNS VPN</span>
+                </div>
+
+                <div className="space-y-2.5">
+                  {filteredDomains.map((site) => (
+                    <div key={site.id} className="double-bezel group">
+                      <div className="double-bezel-inner flex items-center justify-between p-3.5">
+                        <div className="space-y-0.5">
+                          <span className="text-sm font-semibold text-white font-mono">
+                            {site.domain}
+                          </span>
+                          <p className="text-[11px] text-slate-500">Redirected to Focus Shield</p>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleUnlock(site.domain, 'site', 5, false)}
+                            className="px-3 py-1 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 text-[11px] font-semibold transition-colors"
+                          >
+                            Unlock 5m
+                          </button>
+                          <button
+                            onClick={() =>
+                              setBlockedDomains((prev) => prev.filter((d) => d.id !== site.id))
+                            }
+                            className="p-1 text-slate-500 hover:text-rose-400 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
-          )}
+          </motion.div>
+        )}
 
-          {/* TAB 4: GEOFENCES */}
-          {activeTab === 'geofence' && (
-            <div className="space-y-6">
-              <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4">
-                <h3 className="font-semibold text-base text-white">Geofenced Movement Zones</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-sm text-slate-200">🏋️ Gym Workout Zone</span>
-                      <span className="text-xs text-emerald-400 font-mono">+60 mins reward</span>
+        {/* Tab 2: Geofence Radar & Physical Movement */}
+        {activeTab === 'geofence' && (
+          <motion.div
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+          >
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Radar Visualizer */}
+              <div className="lg:col-span-5 double-bezel">
+                <div className="double-bezel-inner flex flex-col items-center justify-center p-8 space-y-6 text-center">
+                  <div className="relative w-56 h-56 flex items-center justify-center">
+                    <div className="absolute inset-0 rounded-full border border-cyan-500/20" />
+                    <div className="absolute inset-6 rounded-full border border-cyan-500/30" />
+                    <div className="absolute inset-12 rounded-full border border-cyan-500/40" />
+                    <div className="absolute inset-0 rounded-full bg-cyan-500/5 animate-radar" />
+
+                    <div className="relative z-10 w-16 h-16 rounded-full bg-cyan-500/20 border border-cyan-400 flex items-center justify-center shadow-glow-cyan">
+                      <MapPin className="w-8 h-8 text-cyan-300 animate-pulse" />
                     </div>
-                    <p className="text-xs text-slate-400">Min. dwell time: 30 mins • Movement steps verification active</p>
-                    <div className="text-xs font-mono text-slate-500">Radius: 100m • Cooldown: 1 / day</div>
                   </div>
 
-                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-bold text-white">Physical Zone: Strength Club</h4>
+                    <p className="text-xs text-slate-400">
+                      Step detection active · 42 mins dwell verified
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Geofence Policies */}
+              <div className="lg:col-span-7 space-y-4">
+                <div className="double-bezel">
+                  <div className="double-bezel-inner space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="font-semibold text-sm text-slate-200">🌳 Outdoor Walk Zone</span>
-                      <span className="text-xs text-emerald-400 font-mono">+30 mins reward</span>
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <h4 className="font-semibold text-white text-sm">Zone: Gym / Fitness Club</h4>
+                      </div>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        +60m Reward Rule
+                      </span>
                     </div>
-                    <p className="text-xs text-slate-400">Home exit duration: 60 mins • Movement steps verification active</p>
-                    <div className="text-xs font-mono text-slate-500">Radius: 150m • Cooldown: 1 / day</div>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Staying inside this perimeter for &ge;30 minutes with active step acceleration
+                      awards 60 minutes to your Time Bank.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="double-bezel">
+                  <div className="double-bezel-inner space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-blue-400" />
+                        <h4 className="font-semibold text-white text-sm">Zone: Deep Work Office</h4>
+                      </div>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                        Auto-Lock Shield
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      Automatically activates total distraction lockdown upon arrival.
+                    </p>
                   </div>
                 </div>
               </div>
             </div>
-          )}
+          </motion.div>
+        )}
 
-          {/* TAB 5: AUDIT LOG */}
-          {activeTab === 'audit' && (
-            <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4">
-              <h3 className="font-semibold text-base text-white">Protection Degradation & Tamper Events</h3>
-              <div className="space-y-2 text-xs">
-                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center space-x-2 text-slate-300">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span>UsageStats & Accessibility services operational</span>
+        {/* Tab 3: Tasks & Habits */}
+        {activeTab === 'tasks' && (
+          <motion.div
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-4"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h3 className="text-base font-bold text-white">Daily Habit Protocols</h3>
+                <p className="text-xs text-slate-400">
+                  Earn distraction points by proving habit execution.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {tasks.map((task) => (
+                <div key={task.id} className="double-bezel">
+                  <div className="double-bezel-inner flex flex-col justify-between h-full space-y-4">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                          +{task.rewardMins} mins
+                        </span>
+                        <span className="text-xs text-amber-400 font-mono flex items-center gap-1">
+                          🔥 {task.streak}d streak
+                        </span>
+                      </div>
+                      <h4 className="font-bold text-white text-sm">{task.title}</h4>
+                      <p className="text-xs text-slate-400">{task.description}</p>
+                    </div>
+
+                    <div className="pt-2 border-t border-white/[0.06]">
+                      {task.isCompletedToday ? (
+                        <div className="py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold flex items-center justify-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4" /> Completed Today
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleCompleteTask(task.id)}
+                          className="w-full py-2 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-500 hover:from-cyan-300 hover:to-blue-400 text-black font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all shadow-glow-cyan"
+                        >
+                          <Camera className="w-3.5 h-3.5" /> Submit Proof
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <span className="text-slate-500 font-mono">Pixel 8 Pro</span>
                 </div>
-                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center space-x-2 text-slate-300">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span>Local VpnService DNS shield connected</span>
+              ))}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Tab 4: Immutable Ledger & Cryptographic Audit */}
+        {activeTab === 'ledger' && (
+          <motion.div
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-4"
+          >
+            <div className="double-bezel">
+              <div className="double-bezel-inner space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-cyan-400" />
+                    <h3 className="text-sm font-bold text-white">Append-Only Audit Stream</h3>
                   </div>
-                  <span className="text-slate-500 font-mono">Pixel Tablet</span>
+                  <span className="text-[11px] text-slate-400 font-mono">Zero Tampering Tolerance</span>
+                </div>
+
+                <div className="space-y-3">
+                  {ledger.map((tx) => (
+                    <div
+                      key={tx.id}
+                      className="p-3.5 rounded-xl bg-slate-900/60 border border-white/[0.05] flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                              tx.type === 'EARN'
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                : tx.type === 'EMERGENCY'
+                                ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                                : 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20'
+                            }`}
+                          >
+                            {tx.type}
+                          </span>
+                          <span className="text-xs font-semibold text-white">{tx.description}</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 font-mono">{tx.signature}</p>
+                      </div>
+
+                      <div className="sm:text-right flex sm:flex-col items-center sm:items-end justify-between">
+                        <span
+                          className={`text-sm font-mono font-bold ${
+                            tx.deltaMins > 0 ? 'text-emerald-400' : 'text-slate-300'
+                          }`}
+                        >
+                          {tx.deltaMins > 0 ? `+${tx.deltaMins}` : tx.deltaMins} mins
+                        </span>
+                        <span className="text-[10px] text-slate-500">{tx.timestamp}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
-          )}
-
-        </main>
-      </div>
+          </motion.div>
+        )}
+      </main>
     </div>
   );
 }
+
+export default App;
+

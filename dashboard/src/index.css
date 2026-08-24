@@ -4,6 +4,58 @@
 
 @layer base {
   body {
-    @apply bg-slate-950 text-slate-100 min-h-screen;
+    @apply bg-[#030712] text-slate-100 font-sans selection:bg-cyan-500/20 selection:text-cyan-300;
   }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #030712;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1f2937;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #374151;
+}
+
+/* Ambient Radial Mesh */
+.ambient-mesh {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: 
+    radial-gradient(circle at 15% 15%, rgba(56, 189, 248, 0.04) 0%, transparent 40%),
+    radial-gradient(circle at 85% 80%, rgba(99, 102, 241, 0.03) 0%, transparent 40%),
+    radial-gradient(circle at 50% 50%, rgba(16, 185, 129, 0.02) 0%, transparent 50%);
+}
+
+/* Double-Bezel Hardware Card Effect */
+.double-bezel {
+  @apply relative p-[1.5px] rounded-[1.25rem] bg-gradient-to-b from-white/10 via-white/5 to-transparent transition-all duration-300;
+}
+
+.double-bezel-inner {
+  @apply relative rounded-[calc(1.25rem-1.5px)] bg-[#0b0f19]/90 backdrop-blur-xl shadow-bezel p-5;
+}
+
+/* Glass Refraction */
+.glass-panel {
+  @apply bg-[#0b0f19]/80 backdrop-blur-2xl border border-white/[0.08] shadow-[inset_0_1px_1px_rgba(255,255,255,0.08)];
+}
+
+.glass-pill {
+  @apply bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] backdrop-blur-xl transition-all duration-200;
 }
