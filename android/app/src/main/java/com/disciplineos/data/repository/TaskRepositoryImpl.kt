@@ -10,12 +10,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.UUID
 
-interface TaskRepository {
-    fun getTasksFlow(): Flow<List<TaskItem>>
-    suspend fun createTask(title: String, description: String?, rewardSeconds: Int, evidenceType: String, isRecurring: Boolean): Result<TaskItem>
-    suspend fun completeTask(taskId: String, occurrenceDate: String, evidenceUrl: String?): Result<TimeBank>
-}
-
 class TaskRepositoryImpl(
     private val apiService: DisciplineApiService,
     private val ledgerRepository: LedgerRepository,

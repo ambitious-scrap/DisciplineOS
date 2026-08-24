@@ -26,6 +26,12 @@ interface LedgerRepository {
     suspend fun claimTaskReward(taskId: String, occurrenceDate: String, evidenceUrl: String?): Result<TimeBank>
 }
 
+interface TaskRepository {
+    fun getTasksFlow(): Flow<List<TaskItem>>
+    suspend fun createTask(title: String, description: String?, rewardSeconds: Int, evidenceType: String, isRecurring: Boolean): Result<TaskItem>
+    suspend fun completeTask(taskId: String, occurrenceDate: String, evidenceUrl: String?): Result<TimeBank>
+}
+
 interface ReserveRepository {
     fun getReserveFlow(): Flow<DeviceReserve?>
     suspend fun allocateReserve(seconds: Int): Result<DeviceReserve>
