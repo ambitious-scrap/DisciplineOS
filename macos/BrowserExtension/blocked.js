@@ -8,7 +8,7 @@ document.getElementById('goHomeBtn').addEventListener('click', () => {
 
 document.getElementById('unlock5mBtn').addEventListener('click', async () => {
   try {
-    const res = await fetch('http://localhost:3000/api/sessions/unlock', {
+    const res = await fetch('https://server-production-d646.up.railway.app/api/sessions/unlock', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -25,14 +25,14 @@ document.getElementById('unlock5mBtn').addEventListener('click', async () => {
       alert('Unable to unlock: Insufficient balance or active session lock.');
     }
   } catch (e) {
-    alert('Failed to connect to local DisciplineOS agent.');
+    alert('Failed to connect to DisciplineOS server.');
   }
 });
 
 document.getElementById('emergencyBtn').addEventListener('click', async () => {
   if (!confirm('Emergency unlock will deduct 3x points (15 minutes). Proceed?')) return;
   try {
-    const res = await fetch('http://localhost:3000/api/sessions/emergency', {
+    const res = await fetch('https://server-production-d646.up.railway.app/api/sessions/emergency', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -48,6 +48,6 @@ document.getElementById('emergencyBtn').addEventListener('click', async () => {
       window.location.href = `https://${domain}`;
     }
   } catch (e) {
-    alert('Failed to connect to local DisciplineOS agent.');
+    alert('Failed to connect to DisciplineOS server.');
   }
 });

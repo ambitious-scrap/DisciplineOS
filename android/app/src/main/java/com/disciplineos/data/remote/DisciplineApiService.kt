@@ -39,4 +39,8 @@ interface DisciplineApiService {
         @Header("Authorization") token: String,
         @Body request: ReconcileReservesRequestDto
     ): Response<ReconcileReservesResponseDto>
+
+    companion object {
+        const val BASE_URL = "https://server-production-d646.up.railway.app/"
+    }
 }

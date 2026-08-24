@@ -1,6 +1,4 @@
-// Background service worker for DisciplineOS Focus Shield Extension (Manifest V3)
-
-const SERVER_URL = 'http://localhost:3000';
+const SERVER_URL = 'https://server-production-d646.up.railway.app';
 let activeLeases = new Map();
 
 async function updateDynamicRules(blockedDomains) {

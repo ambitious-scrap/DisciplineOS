@@ -5,6 +5,7 @@
   "description": "DisciplineOS — Cross-device discipline & distraction control ecosystem",
   "scripts": {
     "build": "pnpm --filter @disciplineos/shared build && pnpm --filter @disciplineos/server build",
+    "start": "pnpm --filter @disciplineos/server start",
     "test": "pnpm --filter @disciplineos/server test",
     "lint": "pnpm --filter @disciplineos/server lint"
   },
