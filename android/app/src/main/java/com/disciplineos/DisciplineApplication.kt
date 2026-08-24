@@ -2,6 +2,8 @@ package com.disciplineos
 
 import android.app.Application
 import com.disciplineos.data.local.DisciplineDatabase
+import com.disciplineos.data.local.entity.BlockedAppEntity
+import com.disciplineos.data.local.entity.BlockedSiteEntity
 import com.disciplineos.domain.model.ActiveLease
 import com.disciplineos.domain.model.BlockedApp
 import com.disciplineos.domain.model.BlockedSite
@@ -19,6 +21,7 @@ import com.disciplineos.enforcement.ForegroundAppDetector
 import com.disciplineos.service.DisciplineForegroundService
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 
 class DisciplineApplication : Application() {
 
@@ -57,17 +60,42 @@ class DisciplineApplication : Application() {
 
         database = DisciplineDatabase.getInstance(this)
 
-        // Wire Repositories (In-memory + Room integration)
+        // Wire Repositories (Room integration)
         policyRepository = object : PolicyRepository {
-            override fun getBlockedAppsFlow(): Flow<List<BlockedApp>> = flowOf(emptyList())
-            override fun getBlockedSitesFlow(): Flow<List<BlockedSite>> = flowOf(emptyList())
-            override suspend fun isAppBlocked(packageName: String): Boolean = database.policyDao().isAppBlocked(packageName)
-            override suspend fun isDomainBlocked(domain: String): Boolean = database.policyDao().isDomainBlocked(domain)
+            override fun getBlockedAppsFlow(): Flow<List<BlockedApp>> =
+                database.policyDao().getBlockedAppsFlow().map { entities ->
+                    entities.map { BlockedApp(it.id, it.packageName, it.displayName, it.isActive) }
+                }
+
+            override fun getBlockedSitesFlow(): Flow<List<BlockedSite>> =
+                database.policyDao().getBlockedSitesFlow().map { entities ->
+                    entities.map { BlockedSite(it.id, it.domain, it.isActive) }
+                }
+
+            override suspend fun isAppBlocked(packageName: String): Boolean =
+                database.policyDao().isAppBlocked(packageName)
+
+            override suspend fun isDomainBlocked(domain: String): Boolean =
+                database.policyDao().isDomainBlocked(domain)
+
             override suspend fun syncPolicy(): Result<Unit> = Result.success(Unit)
         }
 
         sessionRepository = object : SessionRepository {
-            override fun getActiveLeasesFlow(): Flow<List<ActiveLease>> = flowOf(emptyList())
+            override fun getActiveLeasesFlow(): Flow<List<ActiveLease>> =
+                database.leaseDao().getActiveLeasesFlow(System.currentTimeMillis()).map { entities ->
+                    entities.map {
+                        ActiveLease(
+                            id = it.id,
+                            identifier = it.identifier,
+                            type = it.type,
+                            expiresAtEpochMs = it.expiresAtEpochMs,
+                            isEmergency = it.isEmergency,
+                            leaseSignature = it.leaseSignature
+                        )
+                    }
+                }
+
             override suspend fun getActiveLeaseForIdentifier(identifier: String): ActiveLease? {
                 val entity = database.leaseDao().getActiveLeaseForIdentifier(identifier, System.currentTimeMillis())
                 return entity?.let {
@@ -81,6 +109,7 @@ class DisciplineApplication : Application() {
                     )
                 }
             }
+
             override suspend fun requestUnlock(identifier: String, type: String, seconds: Int): Result<ActiveLease> {
                 val lease = ActiveLease(
                     id = java.util.UUID.randomUUID().toString(),
@@ -93,6 +122,7 @@ class DisciplineApplication : Application() {
                 saveLease(lease)
                 return Result.success(lease)
             }
+
             override suspend fun requestEmergencyUnlock(identifier: String, type: String, seconds: Int): Result<ActiveLease> {
                 val lease = ActiveLease(
                     id = java.util.UUID.randomUUID().toString(),
@@ -105,6 +135,7 @@ class DisciplineApplication : Application() {
                 saveLease(lease)
                 return Result.success(lease)
             }
+
             override suspend fun saveLease(lease: ActiveLease) {
                 database.leaseDao().insertLease(
                     com.disciplineos.data.local.entity.ActiveLeaseEntity(
@@ -117,13 +148,14 @@ class DisciplineApplication : Application() {
                     )
                 )
             }
+
             override suspend fun clearExpiredLeases() {
                 database.leaseDao().clearExpired(System.currentTimeMillis())
             }
         }
 
         ledgerRepository = object : LedgerRepository {
-            override fun getTimeBankFlow(): Flow<TimeBank?> = flowOf(null)
+            override fun getTimeBankFlow(): Flow<TimeBank?> = flowOf(TimeBank(3600, 3600, 0, 14400))
             override suspend fun syncBalance(): Result<TimeBank> = Result.success(TimeBank(3600, 3600, 0, 14400))
             override suspend fun claimTaskReward(taskId: String, occurrenceDate: String, evidenceUrl: String?): Result<TimeBank> =
                 Result.success(TimeBank(4800, 4800, 0, 14400))

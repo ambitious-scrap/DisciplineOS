@@ -18,6 +18,12 @@ interface PolicyDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertApps(apps: List<BlockedAppEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertApp(app: BlockedAppEntity)
+
+    @Query("DELETE FROM blocked_apps WHERE packageName = :packageName")
+    suspend fun deleteApp(packageName: String)
+
     @Query("DELETE FROM blocked_apps")
     suspend fun clearApps()
 
@@ -32,6 +38,12 @@ interface PolicyDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSites(sites: List<BlockedSiteEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSite(site: BlockedSiteEntity)
+
+    @Query("DELETE FROM blocked_sites WHERE domain = :domain")
+    suspend fun deleteSite(domain: String)
 
     @Query("DELETE FROM blocked_sites")
     suspend fun clearSites()

@@ -75,6 +75,8 @@ class LivePhotoCaptureActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_EVIDENCE_HASH = "extra_evidence_hash"
+        const val EXTRA_TASK_ID = "extra_task_id"
+        const val EXTRA_REWARD_SECONDS = "extra_reward_seconds"
     }
 }
 
