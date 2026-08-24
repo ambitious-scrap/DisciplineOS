@@ -1,0 +1,14 @@
+{
+  "name": "disciplineos-root",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DisciplineOS — Cross-device discipline & distraction control ecosystem",
+  "scripts": {
+    "build": "pnpm --filter @disciplineos/shared build && pnpm --filter @disciplineos/server build",
+    "test": "pnpm --filter @disciplineos/server test",
+    "lint": "pnpm --filter @disciplineos/server lint"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

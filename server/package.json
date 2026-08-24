@@ -1,0 +1,30 @@
+{
+  "name": "@disciplineos/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@disciplineos/shared": "workspace:*",
+    "@hono/node-server": "^1.13.8",
+    "bcryptjs": "^3.0.2",
+    "dotenv": "^16.4.7",
+    "hono": "^4.7.2",
+    "jose": "^5.9.6",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^22.13.5",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.0",
+    "vitest": "^3.0.6"
+  }
+}

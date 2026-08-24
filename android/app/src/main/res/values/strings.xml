@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">DisciplineOS</string>
+    <string name="accessibility_description">DisciplineOS accessibility enforcer for detecting and intercepting blocked application launches.</string>
+</resources>
