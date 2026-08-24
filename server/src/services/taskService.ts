@@ -21,6 +21,9 @@ export class TaskService {
   }
 
   async createTask(userId: string, req: CreateTaskRequest): Promise<Task> {
+    // Reward is capped between 60s and 3600s
+    const rewardSeconds = Math.min(3600, Math.max(60, req.rewardSeconds));
+
     const id = randomUUID();
     const now = new Date().toISOString();
 
@@ -29,7 +32,7 @@ export class TaskService {
       userId,
       title: req.title,
       description: req.description ?? null,
-      rewardSeconds: req.rewardSeconds,
+      rewardSeconds,
       evidenceType: req.evidenceType,
       isRecurring: req.isRecurring,
       recurrenceCron: req.recurrenceCron ?? null,
@@ -51,42 +54,40 @@ export class TaskService {
       throw new Error('Task not found');
     }
 
-    const occurrenceKey = `${taskId}:${req.occurrenceDate}`;
-    let occurrence: TaskOccurrence | undefined;
+    // Evidence Verification Gate
+    if (task.evidenceType === 'photo') {
+      if (!req.evidenceUrl && !req.evidenceSha256) {
+        throw new Error('Photo proof (evidenceUrl or evidenceSha256) is strictly required to complete this task');
+      }
+    } else if (task.evidenceType === 'focus_timer') {
+      if (!req.evidenceMeta || !req.evidenceMeta.sessionDurationSeconds) {
+        throw new Error('Focus session telemetry is strictly required to complete this task');
+      }
+    }
 
     for (const occ of db.taskOccurrences.values()) {
-      if (occ.taskId === taskId && occ.occurrenceDate === req.occurrenceDate) {
-        occurrence = occ;
-        break;
+      if (occ.taskId === taskId && occ.occurrenceDate === req.occurrenceDate && occ.rewardClaimed) {
+        throw new Error('Reward has already been claimed for this task occurrence date');
       }
     }
 
     const now = new Date().toISOString();
+    const occurrenceId = randomUUID();
+    const occurrence: TaskOccurrence = {
+      id: occurrenceId,
+      taskId,
+      userId,
+      occurrenceDate: req.occurrenceDate,
+      completedAt: now,
+      evidenceUrl: req.evidenceUrl ?? null,
+      evidenceSha256: req.evidenceSha256 ?? null,
+      rewardClaimed: true,
+      createdAt: now,
+    };
+    db.taskOccurrences.set(occurrenceId, occurrence);
 
-    if (occurrence) {
-      if (occurrence.rewardClaimed) {
-        throw new Error('Reward has already been claimed for this task occurrence');
-      }
-      occurrence.completedAt = now;
-      occurrence.evidenceUrl = req.evidenceUrl ?? null;
-      occurrence.rewardClaimed = true;
-    } else {
-      const occurrenceId = randomUUID();
-      occurrence = {
-        id: occurrenceId,
-        taskId,
-        userId,
-        occurrenceDate: req.occurrenceDate,
-        completedAt: now,
-        evidenceUrl: req.evidenceUrl ?? null,
-        rewardClaimed: true,
-        createdAt: now,
-      };
-      db.taskOccurrences.set(occurrenceId, occurrence);
-    }
-
-    // Credit reward to the ledger atomically
-    const { newBalance } = await ledgerService.earnPoints(userId, {
+    // Credit reward to the ledger internally
+    const { newBalance } = await ledgerService.internalCreditPoints(userId, {
       source: 'task',
       seconds: task.rewardSeconds,
       description: `Completed task: ${task.title} (${req.occurrenceDate})`,

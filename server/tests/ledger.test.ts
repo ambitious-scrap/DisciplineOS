@@ -26,64 +26,48 @@ describe('Immutable Ledger & Time Bank API', () => {
     deviceId = pairData.device.id;
   });
 
-  it('should earn points atomically and record immutable transaction', async () => {
+  it('should reject direct reward minting via deleted /api/bank/earn endpoint', async () => {
     const res = await app.request('/api/bank/earn', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         source: 'gym',
         seconds: 3600,
-        description: 'Morning workout',
-        idempotencyKey: 'idem-earn-12345',
+        description: 'Trying to fake points',
+        idempotencyKey: 'idem-fake-12345',
       }),
     });
 
-    expect(res.status).toBe(200);
-    const data = await res.json();
-    expect(data.transaction.seconds).toBe(3600);
-    expect(data.newBalance.balanceSeconds).toBe(3600);
-    expect(data.newBalance.availableSeconds).toBe(3600);
-
-    // Duplicate earn with same idempotency key must not double-credit
-    const dupRes = await app.request('/api/bank/earn', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        source: 'gym',
-        seconds: 3600,
-        description: 'Morning workout',
-        idempotencyKey: 'idem-earn-12345',
-      }),
-    });
-    const dupData = await dupRes.json();
-    expect(dupData.newBalance.balanceSeconds).toBe(3600); // remains 3600
+    // Endpoint is removed — 404
+    expect(res.status).toBe(404);
   });
 
-  it('should spend points and reject when balance is insufficient', async () => {
-    // 1. Try to spend with 0 balance -> reject
-    const failSpend = await app.request('/api/bank/spend', {
+  it('should earn points through task completion and spend atomically', async () => {
+    // 1. Create a task with 1800s reward
+    const taskRes = await app.request('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
-        seconds: 600,
-        targetType: 'app',
-        targetIdentifier: 'com.instagram.android',
-        deviceId,
-        idempotencyKey: 'spend-fail-1',
+        title: 'Deep Focus Sprint',
+        rewardSeconds: 1800,
+        evidenceType: 'none',
       }),
     });
-    expect(failSpend.status).toBe(400);
+    const taskData = await taskRes.json();
+    const taskId = taskData.task.id;
 
-    // 2. Earn 1800s
-    await app.request('/api/bank/earn', {
+    // 2. Complete task -> credits 1800s
+    const compRes = await app.request(`/api/tasks/${taskId}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
-        source: 'task',
-        seconds: 1800,
-        idempotencyKey: 'earn-for-spend',
+        occurrenceDate: '2026-08-25',
+        idempotencyKey: 'comp-idem-1',
       }),
     });
+    expect(compRes.status).toBe(200);
+    const compData = await compRes.json();
+    expect(compData.balance.balanceSeconds).toBe(1800);
 
     // 3. Spend 600s -> balance becomes 1200s
     const successSpend = await app.request('/api/bank/spend', {
@@ -103,19 +87,29 @@ describe('Immutable Ledger & Time Bank API', () => {
     expect(spendData.transaction.type).toBe('spend');
   });
 
-  it('should charge 3x penalty for emergency unlock', async () => {
-    // Earn 1800s
-    await app.request('/api/bank/earn', {
+  it('should charge 3.0x penalty for emergency unlock strictly server-side', async () => {
+    // 1. Create & complete a task for 1800s
+    const taskRes = await app.request('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
-        source: 'manual',
-        seconds: 1800,
-        idempotencyKey: 'earn-for-emergency',
+        title: 'Workout Session',
+        rewardSeconds: 1800,
+        evidenceType: 'none',
+      }),
+    });
+    const { task } = await taskRes.json();
+
+    await app.request(`/api/tasks/${task.id}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        occurrenceDate: '2026-08-25',
+        idempotencyKey: 'comp-idem-2',
       }),
     });
 
-    // Emergency unlock for 300s (5 min) -> 3x = 900s deducted
+    // 2. Emergency unlock for 300s (5 min) -> Server strictly applies 3.0x = 900s penalty
     const emRes = await app.request('/api/bank/emergency', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -124,14 +118,13 @@ describe('Immutable Ledger & Time Bank API', () => {
         targetType: 'site',
         targetIdentifier: 'youtube.com',
         deviceId,
-        multiplier: 3,
         idempotencyKey: 'emergency-1',
       }),
     });
 
     expect(emRes.status).toBe(200);
     const emData = await emRes.json();
-    expect(emData.transaction.seconds).toBe(900); // 300 * 3
+    expect(emData.transaction.seconds).toBe(900); // 300 * 3.0
     expect(emData.newBalance.balanceSeconds).toBe(900); // 1800 - 900
     expect(emData.transaction.source).toBe('emergency');
   });

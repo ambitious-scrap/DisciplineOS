@@ -40,30 +40,22 @@ export interface LedgerTransaction {
   createdAt: string;
 }
 
-export const EarnPointsSchema = z.object({
-  source: TransactionSourceSchema,
-  seconds: z.number().int().positive(),
-  description: z.string().optional(),
-  deviceId: z.string().uuid().optional(),
-  idempotencyKey: z.string().min(8).max(128),
-});
-export type EarnPointsRequest = z.infer<typeof EarnPointsSchema>;
-
 export const SpendPointsSchema = z.object({
   seconds: z.number().int().positive(),
   targetType: z.enum(['app', 'site']),
   targetIdentifier: z.string().min(1),
-  deviceId: z.string().uuid(),
+  deviceId: z.string().uuid().optional(),
   idempotencyKey: z.string().min(8).max(128),
 });
 export type SpendPointsRequest = z.infer<typeof SpendPointsSchema>;
 
+// Emergency Unlock: Server authoritatively calculates cost with non-negotiable 3.0x multiplier.
+// Client MUST NOT specify multiplier.
 export const EmergencyUnlockSchema = z.object({
   seconds: z.number().int().positive().default(300), // default 5 min
   targetType: z.enum(['app', 'site']),
   targetIdentifier: z.string().min(1),
-  deviceId: z.string().uuid(),
-  multiplier: z.number().positive().default(3), // default 3x cost
+  deviceId: z.string().uuid().optional(),
   idempotencyKey: z.string().min(8).max(128),
 });
 export type EmergencyUnlockRequest = z.infer<typeof EmergencyUnlockSchema>;

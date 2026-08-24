@@ -34,11 +34,18 @@ describe('Active Sessions & Global Distraction Lock API', () => {
     const tData = await tPair.json();
     tabletDeviceId = tData.device.id;
 
-    // Credit 3600s balance
-    await app.request('/api/bank/earn', {
+    // Credit 3600s balance via task completion
+    const taskRes = await app.request('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ source: 'manual', seconds: 3600, idempotencyKey: 'fund-sessions' }),
+      body: JSON.stringify({ title: 'Fund Task', rewardSeconds: 3600, evidenceType: 'none' }),
+    });
+    const { task } = await taskRes.json();
+
+    await app.request(`/api/tasks/${task.id}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ occurrenceDate: '2026-08-25', idempotencyKey: 'fund-sessions-task' }),
     });
   });
 

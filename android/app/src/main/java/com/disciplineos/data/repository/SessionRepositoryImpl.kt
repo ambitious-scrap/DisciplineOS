@@ -97,7 +97,6 @@ class SessionRepositoryImpl(
                     targetType = type,
                     targetIdentifier = identifier,
                     deviceId = deviceId,
-                    multiplier = 3.0,
                     idempotencyKey = idempotencyKey
                 )
             )

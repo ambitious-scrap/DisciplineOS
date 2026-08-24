@@ -20,9 +20,12 @@ reserveRoutes.get('/', async (c) => {
 reserveRoutes.post('/allocate', async (c) => {
   try {
     const userId = c.get('userId');
+    const tokenDeviceId = c.get('deviceId');
     const body = await c.req.json();
     const validated = AllocateReserveSchema.parse(body);
-    const reserve = await reserveService.allocateReserve(userId, validated);
+
+    const deviceId = tokenDeviceId || validated.deviceId;
+    const reserve = await reserveService.allocateReserve(userId, { ...validated, deviceId });
     return c.json({ reserve }, 201);
   } catch (err: any) {
     return c.json({ error: err.message }, 400);
@@ -32,9 +35,12 @@ reserveRoutes.post('/allocate', async (c) => {
 reserveRoutes.post('/reconcile', async (c) => {
   try {
     const userId = c.get('userId');
+    const tokenDeviceId = c.get('deviceId');
     const body = await c.req.json();
     const validated = ReconcileReservesSchema.parse(body);
-    const result = await reserveService.reconcileReserve(userId, validated);
+
+    const deviceId = tokenDeviceId || validated.deviceId;
+    const result = await reserveService.reconcileReserve(userId, { ...validated, deviceId });
     return c.json(result, 200);
   } catch (err: any) {
     return c.json({ error: err.message }, 400);

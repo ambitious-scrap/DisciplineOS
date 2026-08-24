@@ -17,8 +17,8 @@ describe('Tasks & Occurrence Completion API', () => {
     token = regData.tokens.accessToken;
   });
 
-  it('should create task and claim reward only once per occurrence date', async () => {
-    // 1. Create task
+  it('should require photo proof for photo tasks and prevent duplicate completions', async () => {
+    // 1. Create photo-verified task
     const createRes = await app.request('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -34,13 +34,25 @@ describe('Tasks & Occurrence Completion API', () => {
     const { task } = await createRes.json();
     expect(task.rewardSeconds).toBe(1200);
 
-    // 2. Complete task for 2026-08-25
+    // 2. Attempt to complete WITHOUT photo evidence -> Rejected!
+    const noProofRes = await app.request(`/api/tasks/${task.id}/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        occurrenceDate: '2026-08-25',
+        idempotencyKey: 'task-no-proof',
+      }),
+    });
+    expect(noProofRes.status).toBe(400);
+
+    // 3. Complete with valid photo evidence -> Success
     const compRes = await app.request(`/api/tasks/${task.id}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         occurrenceDate: '2026-08-25',
         evidenceUrl: 'https://storage.disciplineos.local/photos/proof1.jpg',
+        evidenceSha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
         idempotencyKey: 'task-comp-20260825',
       }),
     });
@@ -50,24 +62,25 @@ describe('Tasks & Occurrence Completion API', () => {
     expect(compData.occurrence.rewardClaimed).toBe(true);
     expect(compData.balance.balanceSeconds).toBe(1200);
 
-    // 3. Attempting to complete the same occurrence again must be rejected
+    // 4. Duplicate completion for same occurrence date -> Rejected
     const dupRes = await app.request(`/api/tasks/${task.id}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         occurrenceDate: '2026-08-25',
+        evidenceUrl: 'https://storage.disciplineos.local/photos/proof2.jpg',
         idempotencyKey: 'task-comp-20260825-2',
       }),
     });
-
     expect(dupRes.status).toBe(400);
 
-    // 4. Completing next day's occurrence works cleanly
+    // 5. Completing next day with valid proof -> Success
     const nextDayRes = await app.request(`/api/tasks/${task.id}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         occurrenceDate: '2026-08-26',
+        evidenceUrl: 'https://storage.disciplineos.local/photos/proof3.jpg',
         idempotencyKey: 'task-comp-20260826',
       }),
     });

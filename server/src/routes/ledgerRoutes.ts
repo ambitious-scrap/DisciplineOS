@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { EarnPointsSchema, SpendPointsSchema, EmergencyUnlockSchema } from '@disciplineos/shared';
+import { SpendPointsSchema, EmergencyUnlockSchema } from '@disciplineos/shared';
 import { ledgerService } from '../services/ledgerService.js';
 import { authMiddleware } from '../middleware/auth.js';
 import type { AppEnv } from '../types.js';
@@ -28,24 +28,22 @@ ledgerRoutes.get('/transactions', async (c) => {
   }
 });
 
-ledgerRoutes.post('/earn', async (c) => {
-  try {
-    const userId = c.get('userId');
-    const body = await c.req.json();
-    const validated = EarnPointsSchema.parse(body);
-    const result = await ledgerService.earnPoints(userId, validated);
-    return c.json(result, 200);
-  } catch (err: any) {
-    return c.json({ error: err.message }, 400);
-  }
-});
+// NOTE: POST /earn is strictly removed. Clients cannot manufacture points directly.
 
 ledgerRoutes.post('/spend', async (c) => {
   try {
     const userId = c.get('userId');
+    const tokenDeviceId = c.get('deviceId');
     const body = await c.req.json();
     const validated = SpendPointsSchema.parse(body);
-    const result = await ledgerService.spendPoints(userId, validated);
+
+    // Enforce token-bound deviceId if present
+    const deviceId = tokenDeviceId || validated.deviceId;
+    if (!deviceId) {
+      return c.json({ error: 'Device ID required via device token or body' }, 400);
+    }
+
+    const result = await ledgerService.spendPoints(userId, { ...validated, deviceId });
     return c.json(result, 200);
   } catch (err: any) {
     return c.json({ error: err.message }, 400);
@@ -55,9 +53,17 @@ ledgerRoutes.post('/spend', async (c) => {
 ledgerRoutes.post('/emergency', async (c) => {
   try {
     const userId = c.get('userId');
+    const tokenDeviceId = c.get('deviceId');
     const body = await c.req.json();
     const validated = EmergencyUnlockSchema.parse(body);
-    const result = await ledgerService.emergencyUnlock(userId, validated);
+
+    // Enforce token-bound deviceId if present
+    const deviceId = tokenDeviceId || validated.deviceId;
+    if (!deviceId) {
+      return c.json({ error: 'Device ID required via device token or body' }, 400);
+    }
+
+    const result = await ledgerService.emergencyUnlock(userId, { ...validated, deviceId });
     return c.json(result, 200);
   } catch (err: any) {
     return c.json({ error: err.message }, 400);

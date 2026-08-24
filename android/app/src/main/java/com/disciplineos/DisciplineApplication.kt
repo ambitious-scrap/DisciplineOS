@@ -1,31 +1,42 @@
 package com.disciplineos
 
 import android.app.Application
+import android.content.Context
+import android.content.SharedPreferences
 import com.disciplineos.data.local.DisciplineDatabase
-import com.disciplineos.data.local.entity.BlockedAppEntity
-import com.disciplineos.data.local.entity.BlockedSiteEntity
-import com.disciplineos.domain.model.ActiveLease
-import com.disciplineos.domain.model.BlockedApp
-import com.disciplineos.domain.model.BlockedSite
-import com.disciplineos.domain.model.DeviceReserve
-import com.disciplineos.domain.model.TimeBank
+import com.disciplineos.data.remote.DisciplineApiService
+import com.disciplineos.data.repository.LedgerRepositoryImpl
+import com.disciplineos.data.repository.PolicyRepositoryImpl
+import com.disciplineos.data.repository.ReserveRepositoryImpl
+import com.disciplineos.data.repository.SessionRepositoryImpl
+import com.disciplineos.data.repository.TaskRepositoryImpl
 import com.disciplineos.domain.repository.LedgerRepository
 import com.disciplineos.domain.repository.PolicyRepository
 import com.disciplineos.domain.repository.ReserveRepository
 import com.disciplineos.domain.repository.SessionRepository
+import com.disciplineos.domain.repository.TaskRepository
 import com.disciplineos.domain.usecase.CheckIsAppBlockedUseCase
 import com.disciplineos.domain.usecase.CheckIsDomainBlockedUseCase
 import com.disciplineos.domain.usecase.EmergencyUnlockUseCase
 import com.disciplineos.domain.usecase.SpendUnlockUseCase
 import com.disciplineos.enforcement.ForegroundAppDetector
 import com.disciplineos.service.DisciplineForegroundService
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.map
+import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 class DisciplineApplication : Application() {
 
     lateinit var database: DisciplineDatabase
+        private set
+
+    lateinit var apiService: DisciplineApiService
+        private set
+
+    lateinit var prefs: SharedPreferences
         private set
 
     lateinit var policyRepository: PolicyRepository
@@ -38,6 +49,9 @@ class DisciplineApplication : Application() {
         private set
 
     lateinit var reserveRepository: ReserveRepository
+        private set
+
+    lateinit var taskRepository: TaskRepository
         private set
 
     lateinit var checkIsAppBlockedUseCase: CheckIsAppBlockedUseCase
@@ -55,120 +69,80 @@ class DisciplineApplication : Application() {
     lateinit var foregroundAppDetector: ForegroundAppDetector
         private set
 
+    var deviceId: String = ""
+        private set
+
+    var authToken: String? = null
+        private set
+
     override fun onCreate() {
         super.onCreate()
 
+        prefs = getSharedPreferences("disciplineos_prefs", Context.MODE_PRIVATE)
+
+        // Initialize or retrieve persistent Device ID
+        deviceId = prefs.getString("device_id", null) ?: run {
+            val newId = UUID.randomUUID().toString()
+            prefs.edit().putString("device_id", newId).apply()
+            newId
+        }
+
+        authToken = prefs.getString("auth_token", null)
+
+        // Initialize Database
         database = DisciplineDatabase.getInstance(this)
 
-        // Wire Repositories (Room integration)
-        policyRepository = object : PolicyRepository {
-            override fun getBlockedAppsFlow(): Flow<List<BlockedApp>> =
-                database.policyDao().getBlockedAppsFlow().map { entities ->
-                    entities.map { BlockedApp(it.id, it.packageName, it.displayName, it.isActive) }
-                }
-
-            override fun getBlockedSitesFlow(): Flow<List<BlockedSite>> =
-                database.policyDao().getBlockedSitesFlow().map { entities ->
-                    entities.map { BlockedSite(it.id, it.domain, it.isActive) }
-                }
-
-            override suspend fun isAppBlocked(packageName: String): Boolean =
-                database.policyDao().isAppBlocked(packageName)
-
-            override suspend fun isDomainBlocked(domain: String): Boolean =
-                database.policyDao().isDomainBlocked(domain)
-
-            override suspend fun syncPolicy(): Result<Unit> = Result.success(Unit)
+        // Initialize Retrofit API Service
+        val logging = HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BASIC
         }
 
-        sessionRepository = object : SessionRepository {
-            override fun getActiveLeasesFlow(): Flow<List<ActiveLease>> =
-                database.leaseDao().getActiveLeasesFlow(System.currentTimeMillis()).map { entities ->
-                    entities.map {
-                        ActiveLease(
-                            id = it.id,
-                            identifier = it.identifier,
-                            type = it.type,
-                            expiresAtEpochMs = it.expiresAtEpochMs,
-                            isEmergency = it.isEmergency,
-                            leaseSignature = it.leaseSignature
-                        )
-                    }
-                }
+        val okHttpClient = OkHttpClient.Builder()
+            .addInterceptor(logging)
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .build()
 
-            override suspend fun getActiveLeaseForIdentifier(identifier: String): ActiveLease? {
-                val entity = database.leaseDao().getActiveLeaseForIdentifier(identifier, System.currentTimeMillis())
-                return entity?.let {
-                    ActiveLease(
-                        id = it.id,
-                        identifier = it.identifier,
-                        type = it.type,
-                        expiresAtEpochMs = it.expiresAtEpochMs,
-                        isEmergency = it.isEmergency,
-                        leaseSignature = it.leaseSignature
-                    )
-                }
-            }
+        val retrofit = Retrofit.Builder()
+            .baseUrl(DisciplineApiService.BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
 
-            override suspend fun requestUnlock(identifier: String, type: String, seconds: Int): Result<ActiveLease> {
-                val lease = ActiveLease(
-                    id = java.util.UUID.randomUUID().toString(),
-                    identifier = identifier,
-                    type = type,
-                    expiresAtEpochMs = System.currentTimeMillis() + seconds * 1000L,
-                    isEmergency = false,
-                    leaseSignature = "sig-local-unlock"
-                )
-                saveLease(lease)
-                return Result.success(lease)
-            }
+        apiService = retrofit.create(DisciplineApiService::class.java)
 
-            override suspend fun requestEmergencyUnlock(identifier: String, type: String, seconds: Int): Result<ActiveLease> {
-                val lease = ActiveLease(
-                    id = java.util.UUID.randomUUID().toString(),
-                    identifier = identifier,
-                    type = type,
-                    expiresAtEpochMs = System.currentTimeMillis() + seconds * 1000L,
-                    isEmergency = true,
-                    leaseSignature = "sig-emergency-unlock"
-                )
-                saveLease(lease)
-                return Result.success(lease)
-            }
+        // Wire Real Production Repositories (eliminating fake local stubs)
+        policyRepository = PolicyRepositoryImpl(
+            policyDao = database.policyDao(),
+            apiService = apiService,
+            tokenProvider = { authToken }
+        )
 
-            override suspend fun saveLease(lease: ActiveLease) {
-                database.leaseDao().insertLease(
-                    com.disciplineos.data.local.entity.ActiveLeaseEntity(
-                        id = lease.id,
-                        identifier = lease.identifier,
-                        type = lease.type,
-                        expiresAtEpochMs = lease.expiresAtEpochMs,
-                        isEmergency = lease.isEmergency,
-                        leaseSignature = lease.leaseSignature
-                    )
-                )
-            }
+        sessionRepository = SessionRepositoryImpl(
+            leaseDao = database.leaseDao(),
+            apiService = apiService,
+            deviceIdProvider = { deviceId },
+            tokenProvider = { authToken }
+        )
 
-            override suspend fun clearExpiredLeases() {
-                database.leaseDao().clearExpired(System.currentTimeMillis())
-            }
-        }
+        ledgerRepository = LedgerRepositoryImpl(
+            apiService = apiService,
+            tokenProvider = { authToken }
+        )
 
-        ledgerRepository = object : LedgerRepository {
-            override fun getTimeBankFlow(): Flow<TimeBank?> = flowOf(TimeBank(3600, 3600, 0, 14400))
-            override suspend fun syncBalance(): Result<TimeBank> = Result.success(TimeBank(3600, 3600, 0, 14400))
-            override suspend fun claimTaskReward(taskId: String, occurrenceDate: String, evidenceUrl: String?): Result<TimeBank> =
-                Result.success(TimeBank(4800, 4800, 0, 14400))
-        }
+        reserveRepository = ReserveRepositoryImpl(
+            reserveDao = database.reserveDao(),
+            leaseDao = database.leaseDao(),
+            apiService = apiService,
+            deviceIdProvider = { deviceId },
+            tokenProvider = { authToken }
+        )
 
-        reserveRepository = object : ReserveRepository {
-            override fun getReserveFlow(): Flow<DeviceReserve?> = flowOf(null)
-            override suspend fun allocateReserve(seconds: Int): Result<DeviceReserve> =
-                Result.success(DeviceReserve("res-1", seconds, seconds, System.currentTimeMillis() + 43200000L))
-            override suspend fun spendOffline(targetType: String, targetIdentifier: String, seconds: Int, isEmergency: Boolean): Result<ActiveLease> =
-                sessionRepository.requestUnlock(targetIdentifier, targetType, seconds)
-            override suspend fun reconcileOutbox(): Result<Unit> = Result.success(Unit)
-        }
+        taskRepository = TaskRepositoryImpl(
+            apiService = apiService,
+            ledgerRepository = ledgerRepository,
+            tokenProvider = { authToken }
+        )
 
         // UseCases
         checkIsAppBlockedUseCase = CheckIsAppBlockedUseCase(policyRepository, sessionRepository)
@@ -181,5 +155,10 @@ class DisciplineApplication : Application() {
 
         // Start background service
         DisciplineForegroundService.start(this)
+    }
+
+    fun updateAuthToken(token: String) {
+        authToken = token
+        prefs.edit().putString("auth_token", token).apply()
     }
 }

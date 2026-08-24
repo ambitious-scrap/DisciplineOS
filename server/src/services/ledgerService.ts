@@ -4,10 +4,18 @@ import { config } from '../config.js';
 import type {
   TimeBankBalance,
   LedgerTransaction,
-  EarnPointsRequest,
   SpendPointsRequest,
   EmergencyUnlockRequest,
+  TransactionSource,
 } from '@disciplineos/shared';
+
+export interface InternalCreditRequest {
+  source: TransactionSource;
+  seconds: number;
+  description?: string;
+  deviceId?: string | null;
+  idempotencyKey?: string;
+}
 
 export class LedgerService {
   /**
@@ -43,10 +51,10 @@ export class LedgerService {
   }
 
   /**
-   * Atomically credit points to the user's ledger with idempotency support.
+   * Internal ONLY method: credit points to user's ledger via verified domain services (Tasks, Location, Focus).
+   * Not exposed to public HTTP clients.
    */
-  async earnPoints(userId: string, req: EarnPointsRequest): Promise<{ transaction: LedgerTransaction; newBalance: TimeBankBalance }> {
-    // Check idempotency key
+  async internalCreditPoints(userId: string, req: InternalCreditRequest): Promise<{ transaction: LedgerTransaction; newBalance: TimeBankBalance }> {
     if (req.idempotencyKey) {
       const existing = db.transactions.find(
         (t) => t.userId === userId && t.idempotencyKey === req.idempotencyKey
@@ -91,7 +99,6 @@ export class LedgerService {
    * Atomically spend points from the available balance.
    */
   async spendPoints(userId: string, req: SpendPointsRequest): Promise<{ transaction: LedgerTransaction; newBalance: TimeBankBalance }> {
-    // Check idempotency key
     if (req.idempotencyKey) {
       const existing = db.transactions.find(
         (t) => t.userId === userId && t.idempotencyKey === req.idempotencyKey
@@ -132,7 +139,7 @@ export class LedgerService {
   }
 
   /**
-   * Emergency unlock with 3x multiplier cost.
+   * Emergency unlock: Server strictly applies the non-negotiable 3.0x multiplier.
    */
   async emergencyUnlock(userId: string, req: EmergencyUnlockRequest): Promise<{ transaction: LedgerTransaction; newBalance: TimeBankBalance }> {
     if (req.idempotencyKey) {
@@ -145,12 +152,12 @@ export class LedgerService {
       }
     }
 
-    const multiplier = req.multiplier || config.defaultEmergencyMultiplier;
+    const multiplier = config.defaultEmergencyMultiplier; // strictly 3.0
     const totalCost = Math.round(req.seconds * multiplier);
 
     const balance = await this.getBalance(userId);
     if (balance.availableSeconds < totalCost) {
-      throw new Error(`Insufficient balance for emergency unlock. Required: ${totalCost}s (3x penalty for ${req.seconds}s access), Available: ${balance.availableSeconds}s`);
+      throw new Error(`Insufficient balance for emergency unlock. Required: ${totalCost}s (3.0x penalty for ${req.seconds}s access), Available: ${balance.availableSeconds}s`);
     }
 
     const bank = db.timeBanks.get(userId)!;

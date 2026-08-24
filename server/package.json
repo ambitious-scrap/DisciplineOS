@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "lint": "tsc --noEmit",
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -18,11 +19,13 @@
     "dotenv": "^16.4.7",
     "hono": "^4.7.2",
     "jose": "^5.9.6",
+    "pg": "^8.23.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^22.13.5",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.19.3",
     "typescript": "^5.8.0",
     "vitest": "^3.0.6"

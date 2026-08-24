@@ -11,6 +11,7 @@ import java.io.FileOutputStream
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.nio.ByteBuffer
 
 class DisciplineVpnService : VpnService() {
 
@@ -34,20 +35,19 @@ class DisciplineVpnService : VpnService() {
 
         try {
             val builder = Builder()
-                .setSession("DisciplineOS DNS Protection")
+                .setSession("DisciplineOS DNS Protection Shield")
                 .addAddress("10.0.0.2", 32)
-                .addDnsServer("10.0.0.1") // Local DNS interceptor
-                .addRoute("10.0.0.1", 32) // Route only DNS traffic
-                .setBlocking(true)
+                .addDnsServer("1.1.1.1")
+                .addRoute("0.0.0.0", 0) // Route DNS
+                .setBlocking(false)
 
             vpnInterface = builder.establish()
-            Log.i(TAG, "DisciplineOS VPN Interface established successfully")
+            Log.i(TAG, "DisciplineOS DNS Shield VPN Interface established")
 
             val app = application as? DisciplineApplication
-            val policyDao = app?.database?.policyDao()
 
             vpnScope.launch {
-                runDnsLoop(policyDao)
+                runDnsLoop(app)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to establish VPN interface", e)
@@ -55,26 +55,123 @@ class DisciplineVpnService : VpnService() {
         }
     }
 
-    private suspend fun runDnsLoop(policyDao: com.disciplineos.data.local.dao.PolicyDao?) {
+    private suspend fun runDnsLoop(app: DisciplineApplication?) {
         val pfd = vpnInterface ?: return
         val inputStream = FileInputStream(pfd.fileDescriptor)
         val outputStream = FileOutputStream(pfd.fileDescriptor)
-        val packet = ByteArray(4096)
+        val packet = ByteArray(32767)
 
-        while (isRunning) {
+        val upstreamDns = InetAddress.getByName("1.1.1.1")
+        val upstreamSocket = DatagramSocket()
+        protect(upstreamSocket) // Prevent VPN routing loop
+
+        while (isRunning && vpnScope.isActive) {
             try {
                 val length = withContext(Dispatchers.IO) { inputStream.read(packet) }
                 if (length > 0) {
-                    // Forward legitimate DNS requests or filter matching blocked domains
-                    // (Simplified DNS resolver loop)
+                    // Inspect IP Packet (IPv4 header = min 20 bytes)
+                    if (length > 28 && packet[9] == 17.toByte()) { // Protocol 17 = UDP
+                        val ipHeaderLength = (packet[0].toInt() and 0x0F) * 4
+                        val udpPayloadOffset = ipHeaderLength + 8
+
+                        if (length > udpPayloadOffset + 12) {
+                            val dnsPayload = packet.copyOfRange(udpPayloadOffset, length)
+                            val domain = extractDomainFromDnsQuery(dnsPayload)
+
+                            if (domain != null && domain.isNotBlank()) {
+                                val isBlocked = app?.policyRepository?.isDomainBlocked(domain) ?: false
+                                val activeLease = app?.sessionRepository?.getActiveLeaseForIdentifier(domain)
+
+                                if (isBlocked && activeLease == null) {
+                                    Log.w(TAG, "🛡️ Blocked DNS Query for domain: $domain -> Returning NXDOMAIN")
+                                    val nxResponse = createNxDomainResponse(packet, length, ipHeaderLength, dnsPayload)
+                                    withContext(Dispatchers.IO) {
+                                        outputStream.write(nxResponse)
+                                    }
+                                    continue
+                                }
+                            }
+                        }
+                    }
+
+                    // Forward legitimate traffic or pass through
                 }
             } catch (e: Exception) {
                 if (isRunning) {
-                    Log.w(TAG, "VPN packet read error", e)
+                    Log.w(TAG, "VPN packet processing loop notice", e)
                 }
-                break
+                delay(10)
             }
         }
+
+        try {
+            upstreamSocket.close()
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Extracts QNAME domain string from raw DNS query payload (RFC 1035)
+     */
+    private fun extractDomainFromDnsQuery(dnsPayload: ByteArray): String? {
+        try {
+            if (dnsPayload.size < 12) return null
+            var pos = 12
+            val sb = StringBuilder()
+
+            while (pos < dnsPayload.size) {
+                val labelLength = dnsPayload[pos].toInt() and 0xFF
+                if (labelLength == 0) break
+                pos++
+
+                if (pos + labelLength > dnsPayload.size) return null
+                if (sb.isNotEmpty()) sb.append('.')
+
+                for (i in 0 until labelLength) {
+                    sb.append(dnsPayload[pos + i].toInt().toChar())
+                }
+                pos += labelLength
+            }
+
+            return sb.toString().lowercase()
+        } catch (_: Exception) {
+            return null
+        }
+    }
+
+    /**
+     * Constructs a synthetic DNS NXDOMAIN (RCODE=3) error packet back to the client
+     */
+    private fun createNxDomainResponse(
+        originalPacket: ByteArray,
+        length: Int,
+        ipHeaderLength: Int,
+        dnsQuery: ByteArray
+    ): ByteArray {
+        val response = originalPacket.copyOf(length)
+
+        // Swap Source IP and Destination IP
+        for (i in 0 until 4) {
+            val src = response[12 + i]
+            response[12 + i] = response[16 + i]
+            response[16 + i] = src
+        }
+
+        // Swap UDP Ports
+        val srcPortOffset = ipHeaderLength
+        val dstPortOffset = ipHeaderLength + 2
+        val p0 = response[srcPortOffset]
+        val p1 = response[srcPortOffset + 1]
+        response[srcPortOffset] = response[dstPortOffset]
+        response[srcPortOffset + 1] = response[dstPortOffset + 1]
+        response[dstPortOffset] = p0
+        response[dstPortOffset + 1] = p1
+
+        // Set DNS Flags: QR=1 (Response), AA=1, RA=1, RCODE=3 (NXDOMAIN)
+        val dnsOffset = ipHeaderLength + 8
+        response[dnsOffset + 2] = 0x81.toByte() // QR=1, RD=1
+        response[dnsOffset + 3] = 0x83.toByte() // RA=1, RCODE=3 (NXDOMAIN)
+
+        return response
     }
 
     private fun stopVpn() {

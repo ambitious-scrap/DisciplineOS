@@ -37,3 +37,17 @@ export interface PolicyProfile {
   blockedApps: BlockedApp[];
   blockedSites: BlockedSite[];
 }
+
+export type PolicyChangeAction = 'unblock_app' | 'unblock_site' | 'delete_policy';
+
+export interface PendingPolicyChange {
+  id: string;
+  userId: string;
+  action: PolicyChangeAction;
+  targetId: string;
+  targetDescription: string;
+  requestedAt: string;
+  effectiveAt: string; // e.g. requestedAt + 24 hours (Cooling-off delay)
+  isCancelled: boolean;
+  isExecuted: boolean;
+}

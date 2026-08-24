@@ -25,9 +25,16 @@ sessionRoutes.get('/active', async (c) => {
 sessionRoutes.post('/unlock', async (c) => {
   try {
     const userId = c.get('userId');
+    const tokenDeviceId = c.get('deviceId');
     const body = await c.req.json();
     const validated = SpendPointsSchema.parse(body);
-    const session = await sessionService.startUnlockSession(userId, validated);
+
+    const deviceId = tokenDeviceId || validated.deviceId;
+    if (!deviceId) {
+      return c.json({ error: 'Device ID required via device token or body' }, 400);
+    }
+
+    const session = await sessionService.startUnlockSession(userId, { ...validated, deviceId });
     return c.json({ session }, 201);
   } catch (err: any) {
     return c.json({ error: err.message }, 400);
@@ -37,9 +44,16 @@ sessionRoutes.post('/unlock', async (c) => {
 sessionRoutes.post('/emergency', async (c) => {
   try {
     const userId = c.get('userId');
+    const tokenDeviceId = c.get('deviceId');
     const body = await c.req.json();
     const validated = EmergencyUnlockSchema.parse(body);
-    const session = await sessionService.startEmergencyUnlock(userId, validated);
+
+    const deviceId = tokenDeviceId || validated.deviceId;
+    if (!deviceId) {
+      return c.json({ error: 'Device ID required via device token or body' }, 400);
+    }
+
+    const session = await sessionService.startEmergencyUnlock(userId, { ...validated, deviceId });
     return c.json({ session }, 201);
   } catch (err: any) {
     return c.json({ error: err.message }, 400);
@@ -49,9 +63,12 @@ sessionRoutes.post('/emergency', async (c) => {
 sessionRoutes.post('/focus', async (c) => {
   try {
     const userId = c.get('userId');
+    const tokenDeviceId = c.get('deviceId');
     const body = await c.req.json();
     const validated = StartFocusSessionSchema.parse(body);
-    const session = await sessionService.startFocusSession(userId, validated);
+
+    const deviceId = tokenDeviceId || validated.deviceId;
+    const session = await sessionService.startFocusSession(userId, { ...validated, deviceId });
     return c.json({ session }, 201);
   } catch (err: any) {
     return c.json({ error: err.message }, 400);
@@ -61,9 +78,12 @@ sessionRoutes.post('/focus', async (c) => {
 sessionRoutes.post('/release', async (c) => {
   try {
     const userId = c.get('userId');
+    const tokenDeviceId = c.get('deviceId');
     const body = await c.req.json();
     const validated = ReleaseSessionSchema.parse(body);
-    const success = await sessionService.releaseSession(userId, validated.sessionId, validated.deviceId);
+
+    const deviceId = tokenDeviceId || validated.deviceId;
+    const success = await sessionService.releaseSession(userId, validated.sessionId, deviceId);
     return c.json({ success }, 200);
   } catch (err: any) {
     return c.json({ error: err.message }, 400);

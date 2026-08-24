@@ -106,7 +106,6 @@ data class EmergencyUnlockRequestDto(
     @SerializedName("targetType") val targetType: String,
     @SerializedName("targetIdentifier") val targetIdentifier: String,
     @SerializedName("deviceId") val deviceId: String,
-    @SerializedName("multiplier") val multiplier: Double = 3.0,
     @SerializedName("idempotencyKey") val idempotencyKey: String
 )
 
@@ -153,3 +152,15 @@ data class ReconcileReservesResponseDto(
     @SerializedName("releasedUnusedSeconds") val releasedUnusedSeconds: Int,
     @SerializedName("newBalanceSeconds") val newBalanceSeconds: Int
 )
+
+data class CompleteTaskRequestDto(
+    @SerializedName("occurrenceDate") val occurrenceDate: String,
+    @SerializedName("evidenceUrl") val evidenceUrl: String? = null,
+    @SerializedName("evidenceSha256") val evidenceSha256: String? = null,
+    @SerializedName("idempotencyKey") val idempotencyKey: String
+)
+
+data class CompleteTaskResponseDto(
+    @SerializedName("balance") val balance: TimeBankDto
+)
+

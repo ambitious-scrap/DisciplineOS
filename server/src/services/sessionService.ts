@@ -50,26 +50,27 @@ export class SessionService {
   async startUnlockSession(userId: string, req: SpendPointsRequest): Promise<ActiveUnlockSession> {
     this.purgeExpired();
 
-    // Invariant: Single active distraction session globally
     const existing = await this.getActiveSession(userId);
     if (existing) {
       throw new Error(`Another session is currently active on device ${existing.deviceId} (expires at ${existing.expiresAt})`);
     }
 
+    const deviceId = req.deviceId || 'device-primary';
+
     // Spend the points from the ledger
-    await ledgerService.spendPoints(userId, req);
+    await ledgerService.spendPoints(userId, { ...req, deviceId });
 
     const sessionId = randomUUID();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + req.seconds * 1000).toISOString();
     const startedAt = now.toISOString();
 
-    const signature = this.signLease(sessionId, userId, req.deviceId, expiresAt);
+    const signature = this.signLease(sessionId, userId, deviceId, expiresAt);
 
     const session: ActiveUnlockSession = {
       id: sessionId,
       userId,
-      deviceId: req.deviceId,
+      deviceId,
       unlockType: req.targetType,
       identifier: req.targetIdentifier,
       durationSeconds: req.seconds,
@@ -94,19 +95,21 @@ export class SessionService {
       throw new Error(`Another session is currently active on device ${existing.deviceId}`);
     }
 
-    await ledgerService.emergencyUnlock(userId, req);
+    const deviceId = req.deviceId || 'device-primary';
+
+    await ledgerService.emergencyUnlock(userId, { ...req, deviceId });
 
     const sessionId = randomUUID();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + req.seconds * 1000).toISOString();
     const startedAt = now.toISOString();
 
-    const signature = this.signLease(sessionId, userId, req.deviceId, expiresAt);
+    const signature = this.signLease(sessionId, userId, deviceId, expiresAt);
 
     const session: ActiveUnlockSession = {
       id: sessionId,
       userId,
-      deviceId: req.deviceId,
+      deviceId,
       unlockType: req.targetType,
       identifier: req.targetIdentifier,
       durationSeconds: req.seconds,

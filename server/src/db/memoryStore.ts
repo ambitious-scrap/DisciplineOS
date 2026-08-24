@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import type {
   UserRow,
   DeviceRow,
@@ -8,6 +7,7 @@ import type {
   TaskOccurrenceRow,
   BlockedAppRow,
   BlockedSiteRow,
+  PendingPolicyChangeRow,
   ActiveUnlockRow,
   DeviceReserveRow,
   OfflineEventRow,
@@ -24,6 +24,7 @@ export class MemoryStore {
   taskOccurrences: Map<string, TaskOccurrenceRow> = new Map(); // id -> row
   blockedApps: Map<string, BlockedAppRow> = new Map();
   blockedSites: Map<string, BlockedSiteRow> = new Map();
+  pendingPolicyChanges: Map<string, PendingPolicyChangeRow> = new Map();
   activeUnlocks: Map<string, ActiveUnlockRow> = new Map();
   deviceReserves: Map<string, DeviceReserveRow> = new Map();
   offlineEvents: Map<string, OfflineEventRow> = new Map();
@@ -39,6 +40,7 @@ export class MemoryStore {
     this.taskOccurrences.clear();
     this.blockedApps.clear();
     this.blockedSites.clear();
+    this.pendingPolicyChanges.clear();
     this.activeUnlocks.clear();
     this.deviceReserves.clear();
     this.offlineEvents.clear();

@@ -40,6 +40,13 @@ interface DisciplineApiService {
         @Body request: ReconcileReservesRequestDto
     ): Response<ReconcileReservesResponseDto>
 
+    @POST("/api/tasks/{id}/complete")
+    suspend fun completeTask(
+        @Header("Authorization") token: String,
+        @Path("id") taskId: String,
+        @Body request: CompleteTaskRequestDto
+    ): Response<CompleteTaskResponseDto>
+
     companion object {
         const val BASE_URL = "https://server-production-d646.up.railway.app/"
     }

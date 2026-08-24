@@ -6,6 +6,7 @@ import type {
   UnlockType,
   ProtectionDegradedType,
   LocationEventType,
+  PolicyChangeAction,
 } from '@disciplineos/shared';
 
 export interface UserRow {
@@ -66,6 +67,7 @@ export interface TaskOccurrenceRow {
   occurrenceDate: string;
   completedAt?: string | null;
   evidenceUrl?: string | null;
+  evidenceSha256?: string | null;
   rewardClaimed: boolean;
   createdAt: string;
 }
@@ -86,6 +88,18 @@ export interface BlockedSiteRow {
   domain: string;
   isActive: boolean;
   createdAt: string;
+}
+
+export interface PendingPolicyChangeRow {
+  id: string;
+  userId: string;
+  action: PolicyChangeAction;
+  targetId: string;
+  targetDescription: string;
+  requestedAt: string;
+  effectiveAt: string;
+  isCancelled: boolean;
+  isExecuted: boolean;
 }
 
 export interface ActiveUnlockRow {

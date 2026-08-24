@@ -73,7 +73,7 @@ export class AuthService {
     };
   }
 
-  async pairDevice(userId: string, data: PairDeviceRequest): Promise<DeviceInfo> {
+  async pairDevice(userId: string, data: PairDeviceRequest): Promise<DeviceInfo & { tokens: AuthTokens }> {
     const user = db.users.get(userId);
     if (!user) {
       throw new Error('User not found');
@@ -94,6 +94,8 @@ export class AuthService {
     };
     db.devices.set(deviceId, deviceRow);
 
+    const tokens = await this.generateTokens(userId, deviceId);
+
     return {
       id: deviceId,
       userId,
@@ -103,6 +105,7 @@ export class AuthService {
       lastSeenAt: deviceRow.lastSeenAt,
       isEnforced: deviceRow.isEnforced,
       createdAt: deviceRow.createdAt,
+      tokens,
     };
   }
 
@@ -126,7 +129,7 @@ export class AuthService {
   }
 
   async generateTokens(userId: string, deviceId?: string): Promise<AuthTokens> {
-    const jwt = await new jose.SignJWT({ userId, deviceId })
+    const jwt = await new jose.SignJWT({ userId, deviceId, type: 'access' })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()
       .setExpirationTime(`${config.jwtExpiresInSeconds}s`)
@@ -148,12 +151,27 @@ export class AuthService {
   async verifyToken(token: string): Promise<{ userId: string; deviceId?: string }> {
     try {
       const { payload } = await jose.jwtVerify(token, secretKey);
+      if (payload.type && payload.type !== 'access') {
+        throw new Error('Unauthorized: Invalid token type (access token required)');
+      }
       return {
         userId: payload.userId as string,
         deviceId: payload.deviceId as string | undefined,
       };
-    } catch {
-      throw new Error('Invalid or expired token');
+    } catch (err: any) {
+      throw new Error(err.message || 'Invalid or expired token');
+    }
+  }
+
+  async refreshToken(refreshTokenString: string): Promise<AuthTokens> {
+    try {
+      const { payload } = await jose.jwtVerify(refreshTokenString, secretKey);
+      if (payload.type !== 'refresh') {
+        throw new Error('Invalid token type: expected refresh token');
+      }
+      return this.generateTokens(payload.userId as string, payload.deviceId as string | undefined);
+    } catch (err: any) {
+      throw new Error(err.message || 'Invalid refresh token');
     }
   }
 }
