@@ -1,10 +1,16 @@
 import Foundation
 import AppKit
 
+@main
 class DisciplineHelperDaemon {
     private var isRunning = true
     private var blockedBundleIds: Set<String> = ["com.apple.Chess", "com.riotgames.leagueoflegends"]
     private var blockedDomains: [String] = ["reddit.com", "twitter.com", "x.com", "youtube.com"]
+
+    static func main() {
+        let daemon = DisciplineHelperDaemon()
+        daemon.start()
+    }
 
     func start() {
         print("[DisciplineOS Helper] LaunchDaemon started with root privileges.")

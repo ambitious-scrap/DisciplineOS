@@ -42,7 +42,7 @@ struct DisciplineMenuBarApp: App {
                 Button("Unlock 5 mins (5 points)") {
                     stateManager.requestUnlock(seconds: 300)
                 }
-                .disabled(stateManager.balanceMinutes < 5 || stateManager.activeSession != null)
+                .disabled(stateManager.balanceMinutes < 5 || stateManager.activeSession != nil)
 
                 Button("Emergency Unlock (3x Penalty)") {
                     stateManager.requestEmergencyUnlock(seconds: 300)
