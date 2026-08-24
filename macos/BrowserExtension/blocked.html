@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>DisciplineOS — Focus Shield</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: #020617; color: #f8fafc; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; }
+    .card { background: #0f172a; border: 1px solid #1e293b; border-radius: 20px; padding: 40px; max-width: 480px; width: 100%; text-align: center; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+    .icon { width: 64px; height: 64px; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 16px; display: inline-flex; align-items: center; justify-content: center; margin-bottom: 24px; color: #38bdf8; font-size: 28px; }
+    h1 { font-size: 24px; font-weight: 700; margin-bottom: 8px; }
+    p { font-size: 14px; color: #94a3b8; line-height: 1.5; margin-bottom: 32px; }
+    .domain-tag { font-family: monospace; background: #1e293b; color: #38bdf8; padding: 3px 8px; border-radius: 6px; }
+    .btn { display: block; width: 100%; padding: 14px; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; border: none; transition: all 0.2s; text-decoration: none; margin-bottom: 12px; }
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-outline { background: transparent; border: 1px solid #334155; color: #38bdf8; }
+    .btn-outline:hover { background: #1e293b; }
+    .btn-emergency { background: transparent; color: #ef4444; font-size: 13px; margin-top: 8px; }
+    .btn-emergency:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🛡️</div>
+    <h1>Focus Shield Active</h1>
+    <p>Access to <span id="targetDomain" class="domain-tag">this website</span> is blocked under your active discipline policy.</p>
+
+    <button id="goHomeBtn" class="btn btn-primary">Return to Deep Focus</button>
+    <button id="unlock5mBtn" class="btn btn-outline">Unlock for 5 mins (5 points)</button>
+    <button id="emergencyBtn" class="btn btn-emergency">Emergency Unlock (3x Cost Penalty)</button>
+  </div>
+
+  <script src="blocked.js"></script>
+</body>
+</html>
