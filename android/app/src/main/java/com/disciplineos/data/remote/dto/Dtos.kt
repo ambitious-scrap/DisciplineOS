@@ -18,6 +18,10 @@ data class TokensDto(
     @SerializedName("refreshToken") val refreshToken: String,
     @SerializedName("expiresInSeconds") val expiresInSeconds: Int
 )
+data class LoginRequestDto(
+    @SerializedName("email") val email: String,
+    @SerializedName("password") val password: String
+)
 
 data class PairDeviceRequestDto(
     @SerializedName("name") val name: String,
@@ -56,6 +60,39 @@ data class PolicyProfileDto(
     @SerializedName("updatedAt") val updatedAt: String,
     @SerializedName("blockedApps") val blockedApps: List<BlockedAppDto>,
     @SerializedName("blockedSites") val blockedSites: List<BlockedSiteDto>
+)
+data class PendingPolicyChangeResponseDto(
+    @SerializedName("status") val status: String,
+    @SerializedName("pendingChange") val pendingChange: PendingPolicyChangeDto
+)
+
+data class PendingPolicyChangeDto(
+    @SerializedName("id") val id: String,
+    @SerializedName("userId") val userId: String,
+    @SerializedName("action") val action: String,
+    @SerializedName("targetId") val targetId: String,
+    @SerializedName("targetDescription") val targetDescription: String,
+    @SerializedName("requestedAt") val requestedAt: String,
+    @SerializedName("effectiveAt") val effectiveAt: String,
+    @SerializedName("isCancelled") val isCancelled: Boolean,
+    @SerializedName("isExecuted") val isExecuted: Boolean
+)
+data class CreateBlockedAppRequestDto(
+    @SerializedName("platform") val platform: String = "android",
+    @SerializedName("identifier") val identifier: String,
+    @SerializedName("displayName") val displayName: String
+)
+
+data class CreateBlockedSiteRequestDto(
+    @SerializedName("domain") val domain: String
+)
+
+data class BlockedAppResponseDto(
+    @SerializedName("app") val app: BlockedAppDto
+)
+
+data class BlockedSiteResponseDto(
+    @SerializedName("site") val site: BlockedSiteDto
 )
 
 data class BlockedAppDto(

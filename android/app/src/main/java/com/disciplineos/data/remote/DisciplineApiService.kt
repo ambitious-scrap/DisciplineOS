@@ -5,16 +5,49 @@ import retrofit2.Response
 import retrofit2.http.*
 
 interface DisciplineApiService {
+    @POST("/api/auth/login")
+    suspend fun login(
+        @Body request: LoginRequestDto
+    ): Response<AuthResponseDto>
+
+    @POST("/api/auth/pair")
+    suspend fun pairDevice(
+        @Header("Authorization") token: String,
+        @Body request: PairDeviceRequestDto
+    ): Response<PairDeviceResponseDto>
 
     @GET("/api/policy")
     suspend fun getPolicy(
         @Header("Authorization") token: String
     ): Response<PolicyProfileDto>
+    @POST("/api/policy/apps")
+    suspend fun addBlockedApp(
+        @Header("Authorization") token: String,
+        @Body request: CreateBlockedAppRequestDto
+    ): Response<BlockedAppResponseDto>
+
+    @POST("/api/policy/sites")
+    suspend fun addBlockedSite(
+        @Header("Authorization") token: String,
+        @Body request: CreateBlockedSiteRequestDto
+    ): Response<BlockedSiteResponseDto>
 
     @GET("/api/bank/balance")
     suspend fun getBalance(
         @Header("Authorization") token: String
     ): Response<TimeBankDto>
+
+    @DELETE("/api/policy/apps/{id}")
+    suspend fun requestRemoveBlockedApp(
+        @Header("Authorization") token: String,
+        @Path("id") id: String
+    ): Response<PendingPolicyChangeResponseDto>
+
+    @DELETE("/api/policy/sites/{id}")
+    suspend fun requestRemoveBlockedSite(
+        @Header("Authorization") token: String,
+        @Path("id") id: String
+    ): Response<PendingPolicyChangeResponseDto>
 
     @POST("/api/sessions/unlock")
     suspend fun requestUnlock(

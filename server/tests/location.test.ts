@@ -24,7 +24,23 @@ describe('Location & Physical Movement Verification API', () => {
     });
     const pairData = await pair.json();
     deviceId = pairData.device.id;
+    token = pairData.tokens.accessToken;
   });
+  it('rejects malformed location timestamps before evidence processing', async () => {
+    const response = await app.request('/api/events/location', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        deviceId,
+        locationType: 'gym',
+        eventType: 'enter',
+        occurredAt: 'not-a-timestamp',
+        idempotencyKey: 'invalid-location-time',
+      }),
+    });
+    expect(response.status).toBe(400);
+  });
+
 
   it('should award 60 min points for reconstructed gym session of at least 30 mins', async () => {
     const enterTime = new Date('2026-08-25T07:00:00Z').toISOString();

@@ -87,6 +87,7 @@ export interface DisciplineStore {
     userId: string,
     input: SpendPointsInput,
   ): Promise<{ transaction: TransactionRow; balance: TimeBankBalance }>;
+  getDevice(userId: string, deviceId: string): Promise<DeviceRow | null>;
   getTransactions(userId: string, limit: number): Promise<TransactionRow[]>;
 
   createUnlockSession(input: UnlockSessionInput): Promise<ActiveUnlockRow>;

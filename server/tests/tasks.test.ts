@@ -17,6 +17,21 @@ describe('Tasks & Occurrence Completion API', () => {
     token = regData.tokens.accessToken;
   });
 
+  it('caps evidence-free task rewards at five minutes', async () => {
+    const rejected = await app.request('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ title: 'Unverified large reward', rewardSeconds: 301, evidenceType: 'none' }),
+    });
+    const accepted = await app.request('/api/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ title: 'Unverified small reward', rewardSeconds: 300, evidenceType: 'none' }),
+    });
+    expect(rejected.status).toBe(400);
+    expect(accepted.status).toBe(201);
+  });
+
   it('should require photo proof for photo tasks and prevent duplicate completions', async () => {
     // 1. Create photo-verified task
     const createRes = await app.request('/api/tasks', {

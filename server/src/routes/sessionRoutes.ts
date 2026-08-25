@@ -26,8 +26,11 @@ export function createSessionRoutes(services: Services) {
   routes.post('/unlock', async (c) => {
     try {
       const validated = SpendPointsSchema.parse(await c.req.json());
-      const deviceId = c.get('deviceId') || validated.deviceId;
-      if (!deviceId) return c.json({ error: 'Device ID required via device token or body' }, 400);
+      const deviceId = c.get('deviceId');
+      if (!deviceId) return c.json({ error: 'Device-scoped access token required' }, 401);
+      if (validated.deviceId && validated.deviceId !== deviceId) {
+        return c.json({ error: 'Body device ID does not match device credential' }, 403);
+      }
       const session = await services.sessions.startUnlockSession(c.get('userId'), { ...validated, deviceId });
       return c.json({ session }, 201);
     } catch (error) {
@@ -39,8 +42,11 @@ export function createSessionRoutes(services: Services) {
   routes.post('/emergency', async (c) => {
     try {
       const validated = EmergencyUnlockSchema.parse(await c.req.json());
-      const deviceId = c.get('deviceId') || validated.deviceId;
-      if (!deviceId) return c.json({ error: 'Device ID required via device token or body' }, 400);
+      const deviceId = c.get('deviceId');
+      if (!deviceId) return c.json({ error: 'Device-scoped access token required' }, 401);
+      if (validated.deviceId && validated.deviceId !== deviceId) {
+        return c.json({ error: 'Body device ID does not match device credential' }, 403);
+      }
       const session = await services.sessions.startEmergencyUnlock(c.get('userId'), { ...validated, deviceId });
       return c.json({ session }, 201);
     } catch (error) {
@@ -52,7 +58,11 @@ export function createSessionRoutes(services: Services) {
   routes.post('/focus', async (c) => {
     try {
       const validated = StartFocusSessionSchema.parse(await c.req.json());
-      const deviceId = c.get('deviceId') || validated.deviceId;
+      const deviceId = c.get('deviceId');
+      if (!deviceId) return c.json({ error: 'Device-scoped access token required' }, 401);
+      if (validated.deviceId !== deviceId) {
+        return c.json({ error: 'Body device ID does not match device credential' }, 403);
+      }
       const session = await services.sessions.startFocusSession(c.get('userId'), { ...validated, deviceId });
       return c.json({ session }, 201);
     } catch (error) {
@@ -64,7 +74,11 @@ export function createSessionRoutes(services: Services) {
   routes.post('/release', async (c) => {
     try {
       const validated = ReleaseSessionSchema.parse(await c.req.json());
-      const deviceId = c.get('deviceId') || validated.deviceId;
+      const deviceId = c.get('deviceId');
+      if (!deviceId) return c.json({ error: 'Device-scoped access token required' }, 401);
+      if (validated.deviceId !== deviceId) {
+        return c.json({ error: 'Body device ID does not match device credential' }, 403);
+      }
       const success = await services.sessions.releaseSession(c.get('userId'), validated.sessionId, deviceId);
       return c.json({ success }, 200);
     } catch (error) {

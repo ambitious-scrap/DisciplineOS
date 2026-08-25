@@ -4,9 +4,10 @@ import { db } from '../src/db/memoryStore.js';
 
 describe('Active Sessions & Global Distraction Lock API', () => {
   let token: string;
+  let phoneToken: string;
+  let tabletToken: string;
   let phoneDeviceId: string;
   let tabletDeviceId: string;
-
   beforeEach(async () => {
     db.clear();
 
@@ -25,7 +26,7 @@ describe('Active Sessions & Global Distraction Lock API', () => {
     });
     const pData = await pPair.json();
     phoneDeviceId = pData.device.id;
-
+    phoneToken = pData.tokens.accessToken;
     const tPair = await app.request('/api/auth/pair', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -33,19 +34,23 @@ describe('Active Sessions & Global Distraction Lock API', () => {
     });
     const tData = await tPair.json();
     tabletDeviceId = tData.device.id;
-
+    tabletToken = tData.tokens.accessToken;
     // Credit 3600s balance via task completion
     const taskRes = await app.request('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ title: 'Fund Task', rewardSeconds: 3600, evidenceType: 'none' }),
+      body: JSON.stringify({ title: 'Fund Task', rewardSeconds: 3600, evidenceType: 'focus_timer' }),
     });
     const { task } = await taskRes.json();
 
     await app.request(`/api/tasks/${task.id}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ occurrenceDate: '2026-08-25', idempotencyKey: 'fund-sessions-task' }),
+      body: JSON.stringify({
+        occurrenceDate: '2026-08-25',
+        evidenceMeta: { sessionDurationSeconds: 3600 },
+        idempotencyKey: 'fund-sessions-task',
+      }),
     });
   });
 
@@ -53,7 +58,7 @@ describe('Active Sessions & Global Distraction Lock API', () => {
     // 1. Phone starts an unlock session
     const unlockRes = await app.request('/api/sessions/unlock', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${phoneToken}` },
       body: JSON.stringify({
         seconds: 600,
         targetType: 'app',
@@ -71,7 +76,7 @@ describe('Active Sessions & Global Distraction Lock API', () => {
     // 2. Tablet attempts to start concurrent unlock -> Must fail due to single global session lock
     const concurrentRes = await app.request('/api/sessions/unlock', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tabletToken}` },
       body: JSON.stringify({
         seconds: 300,
         targetType: 'site',
@@ -86,7 +91,7 @@ describe('Active Sessions & Global Distraction Lock API', () => {
     // 3. Release session from Phone -> Tablet can now unlock
     const relRes = await app.request('/api/sessions/release', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${phoneToken}` },
       body: JSON.stringify({
         sessionId: unlockData.session.id,
         deviceId: phoneDeviceId,
@@ -97,7 +102,7 @@ describe('Active Sessions & Global Distraction Lock API', () => {
     // Now tablet can unlock
     const tabletUnlock = await app.request('/api/sessions/unlock', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tabletToken}` },
       body: JSON.stringify({
         seconds: 300,
         targetType: 'site',

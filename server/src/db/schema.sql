@@ -66,7 +66,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     is_recurring BOOLEAN NOT NULL DEFAULT FALSE,
     recurrence_cron TEXT,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT tasks_no_evidence_reward_cap CHECK (
+        evidence_type <> 'none' OR reward_seconds <= 300
+    )
 );
 
 CREATE INDEX IF NOT EXISTS idx_tasks_user_active ON tasks(user_id, is_active);
@@ -308,5 +311,16 @@ BEGIN
     ALTER TABLE device_reserves
       ADD CONSTRAINT device_reserve_remaining_within_reserved_migrated
       CHECK (remaining_seconds <= reserved_seconds);
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+UPDATE tasks
+SET reward_seconds = 300
+WHERE evidence_type = 'none' AND reward_seconds > 300;
+
+DO $$
+BEGIN
+    ALTER TABLE tasks
+      ADD CONSTRAINT tasks_no_evidence_reward_cap
+      CHECK (evidence_type <> 'none' OR reward_seconds <= 300);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;

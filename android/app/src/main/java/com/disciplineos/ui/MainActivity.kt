@@ -28,7 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -68,11 +68,12 @@ class MainActivity : ComponentActivity() {
 
             // Live app & site list from Room DB
             val app = application as DisciplineApplication
+            var isPaired by remember { mutableStateOf(app.hasDeviceCredentials) }
             var blockedApps by remember { mutableStateOf<List<BlockedAppEntity>>(emptyList()) }
             var blockedSites by remember { mutableStateOf<List<BlockedSiteEntity>>(emptyList()) }
-
             LaunchedEffect(Unit) {
                 withContext(Dispatchers.IO) {
+                    app.policyRepository.syncPolicy()
                     blockedApps = app.database.policyDao().getBlockedApps()
                     blockedSites = app.database.policyDao().getBlockedSites()
                 }
@@ -89,7 +90,19 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            Scaffold(
+            if (!isPaired) {
+                PairDeviceScreen(
+                    onPair = { email, password ->
+                        app.authenticateAndPair(email, password, "DisciplineOS Android").also { result ->
+                            if (result.isSuccess) {
+                                app.policyRepository.syncPolicy()
+                                isPaired = true
+                            }
+                        }
+                    }
+                )
+            } else {
+                Scaffold(
                 bottomBar = {
                     NavigationBar(
                         containerColor = Color(0xFF0F172A),
@@ -167,31 +180,43 @@ class MainActivity : ComponentActivity() {
                             blockedApps = blockedApps,
                             blockedSites = blockedSites,
                             onAddApp = { pkg, name ->
-                                lifecycleScope.launch(Dispatchers.IO) {
-                                    app.database.policyDao().insertApp(
-                                        BlockedAppEntity("app-${System.currentTimeMillis()}", pkg, name, true)
-                                    )
-                                    blockedApps = app.database.policyDao().getBlockedApps()
+                                lifecycleScope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        app.policyRepository.addApp(pkg, name)
+                                    }
+                                    if (result.isSuccess) {
+                                        app.policyRepository.syncPolicy()
+                                        blockedApps = app.database.policyDao().getBlockedApps()
+                                    }
                                 }
                             },
-                            onDeleteApp = { pkg ->
+                            onDeleteApp = { id ->
                                 lifecycleScope.launch(Dispatchers.IO) {
-                                    app.database.policyDao().deleteApp(pkg)
-                                    blockedApps = app.database.policyDao().getBlockedApps()
+                                    val result = app.policyRepository.requestRemoveApp(id)
+                                    if (result.isSuccess) {
+                                        app.policyRepository.syncPolicy()
+                                        blockedApps = app.database.policyDao().getBlockedApps()
+                                    }
                                 }
                             },
                             onAddSite = { domain ->
-                                lifecycleScope.launch(Dispatchers.IO) {
-                                    app.database.policyDao().insertSite(
-                                        BlockedSiteEntity("site-${System.currentTimeMillis()}", domain, true)
-                                    )
-                                    blockedSites = app.database.policyDao().getBlockedSites()
+                                lifecycleScope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        app.policyRepository.addSite(domain)
+                                    }
+                                    if (result.isSuccess) {
+                                        app.policyRepository.syncPolicy()
+                                        blockedSites = app.database.policyDao().getBlockedSites()
+                                    }
                                 }
                             },
-                            onDeleteSite = { domain ->
+                            onDeleteSite = { id ->
                                 lifecycleScope.launch(Dispatchers.IO) {
-                                    app.database.policyDao().deleteSite(domain)
-                                    blockedSites = app.database.policyDao().getBlockedSites()
+                                    val result = app.policyRepository.requestRemoveSite(id)
+                                    if (result.isSuccess) {
+                                        app.policyRepository.syncPolicy()
+                                        blockedSites = app.database.policyDao().getBlockedSites()
+                                    }
                                 }
                             }
                         )
@@ -219,6 +244,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
+            }
             }
         }
     }
@@ -264,6 +290,86 @@ class MainActivity : ComponentActivity() {
             )
         }
         return mode == AppOpsManager.MODE_ALLOWED
+    }
+}
+
+@Composable
+private fun PairDeviceScreen(
+    onPair: suspend (email: String, password: String) -> Result<Unit>
+) {
+    val scope = rememberCoroutineScope()
+    var email by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var pairing by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Color(0xFF020617)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Pair this device",
+                color = Color.White,
+                fontSize = 26.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = "DisciplineOS requires a server-issued device credential before enforcement can start.",
+                color = Color(0xFF94A3B8),
+                fontSize = 14.sp
+            )
+            Spacer(Modifier.height(24.dp))
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                label = { Text("Account email") },
+                singleLine = true,
+                enabled = !pairing
+            )
+            Spacer(Modifier.height(12.dp))
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                label = { Text("Account password") },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                enabled = !pairing
+            )
+            errorMessage?.let {
+                Spacer(Modifier.height(10.dp))
+                Text(it, color = Color(0xFFFCA5A5), fontSize = 13.sp)
+            }
+            Spacer(Modifier.height(20.dp))
+            Button(
+                onClick = {
+                    scope.launch {
+                        pairing = true
+                        errorMessage = null
+                        val result = onPair(email.trim(), password)
+                        pairing = false
+                        errorMessage = result.exceptionOrNull()?.message
+                    }
+                },
+                enabled = !pairing && email.isNotBlank() && password.isNotBlank()
+            ) {
+                if (pairing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Text("Pair securely")
+                }
+            }
+        }
     }
 }
 
@@ -508,7 +614,7 @@ fun BlocklistScreen(
                         color = Color(0xFFEF4444),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
-                        modifier = Modifier.clickable { onDeleteApp(app.packageName) }
+                        modifier = Modifier.clickable { onDeleteApp(app.id) }
                     )
                 }
             }
@@ -582,7 +688,7 @@ fun BlocklistScreen(
                         color = Color(0xFFEF4444),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
-                        modifier = Modifier.clickable { onDeleteSite(site.domain) }
+                        modifier = Modifier.clickable { onDeleteSite(site.id) }
                     )
                 }
             }

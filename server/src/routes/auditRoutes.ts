@@ -12,7 +12,11 @@ export function createAuditRoutes(services: Services) {
   routes.post('/protection', async (c) => {
     try {
       const validated = ReportProtectionEventSchema.parse(await c.req.json());
-      const deviceId = c.get('deviceId') || validated.deviceId;
+      const deviceId = c.get('deviceId');
+      if (!deviceId) return c.json({ error: 'Device-scoped access token required' }, 401);
+      if (validated.deviceId !== deviceId) {
+        return c.json({ error: 'Body device ID does not match device credential' }, 403);
+      }
       return c.json(await services.audit.recordProtectionEvent(c.get('userId'), { ...validated, deviceId }), 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not record protection event';
@@ -32,7 +36,11 @@ export function createAuditRoutes(services: Services) {
   routes.post('/location', async (c) => {
     try {
       const validated = ReportLocationEventSchema.parse(await c.req.json());
-      const deviceId = c.get('deviceId') || validated.deviceId;
+      const deviceId = c.get('deviceId');
+      if (!deviceId) return c.json({ error: 'Device-scoped access token required' }, 401);
+      if (validated.deviceId !== deviceId) {
+        return c.json({ error: 'Body device ID does not match device credential' }, 403);
+      }
       return c.json(await services.audit.recordLocationEvent(c.get('userId'), { ...validated, deviceId }), 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not record location event';

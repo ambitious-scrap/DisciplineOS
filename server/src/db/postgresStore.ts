@@ -332,6 +332,14 @@ export class PostgresStore implements DisciplineStore {
     );
     return rows.length === 0 ? null : this.mapUser(rows[0]);
   }
+  async getDevice(userId: string, deviceId: string): Promise<DeviceRow | null> {
+    const rows = await this.query(
+      `SELECT id, user_id, name, platform, push_token, last_seen_at, is_enforced, created_at
+         FROM devices WHERE id = $1 AND user_id = $2`,
+      [deviceId, userId],
+    );
+    return rows.length === 0 ? null : this.mapDevice(rows[0]);
+  }
 
   async createDevice(device: DeviceRow): Promise<void> {
     await this.query(

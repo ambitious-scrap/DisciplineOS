@@ -21,7 +21,11 @@ export function createReserveRoutes(services: Services) {
   routes.post('/allocate', async (c) => {
     try {
       const validated = AllocateReserveSchema.parse(await c.req.json());
-      const deviceId = c.get('deviceId') || validated.deviceId;
+      const deviceId = c.get('deviceId');
+      if (!deviceId) return c.json({ error: 'Device-scoped access token required' }, 401);
+      if (validated.deviceId !== deviceId) {
+        return c.json({ error: 'Body device ID does not match device credential' }, 403);
+      }
       const reserve = await services.reserves.allocateReserve(c.get('userId'), { ...validated, deviceId });
       return c.json({ reserve }, 201);
     } catch (error) {
@@ -33,7 +37,11 @@ export function createReserveRoutes(services: Services) {
   routes.post('/reconcile', async (c) => {
     try {
       const validated = ReconcileReservesSchema.parse(await c.req.json());
-      const deviceId = c.get('deviceId') || validated.deviceId;
+      const deviceId = c.get('deviceId');
+      if (!deviceId) return c.json({ error: 'Device-scoped access token required' }, 401);
+      if (validated.deviceId !== deviceId) {
+        return c.json({ error: 'Body device ID does not match device credential' }, 403);
+      }
       const result = await services.reserves.reconcileReserve(c.get('userId'), { ...validated, deviceId });
       return c.json(result, 200);
     } catch (error) {

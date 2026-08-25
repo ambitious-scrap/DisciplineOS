@@ -94,10 +94,14 @@ export class AuthService {
       if (payload.type !== 'access' || typeof payload.userId !== 'string') {
         throw new Error('Unauthorized: Invalid token type (access token required)');
       }
-      return {
-        userId: payload.userId,
-        deviceId: typeof payload.deviceId === 'string' ? payload.deviceId : undefined,
-      };
+      if (!(await this.store.getUserById(payload.userId))) {
+        throw new Error('Unauthorized: User no longer exists');
+      }
+      const deviceId = typeof payload.deviceId === 'string' ? payload.deviceId : undefined;
+      if (deviceId && !(await this.store.getDevice(payload.userId, deviceId))) {
+        throw new Error('Unauthorized: Device credential is no longer valid');
+      }
+      return { userId: payload.userId, deviceId };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invalid or expired token';
       throw new Error(message);
@@ -110,10 +114,14 @@ export class AuthService {
       if (payload.type !== 'refresh' || typeof payload.userId !== 'string') {
         throw new Error('Invalid token type: expected refresh token');
       }
-      return this.generateTokens(
-        payload.userId,
-        typeof payload.deviceId === 'string' ? payload.deviceId : undefined,
-      );
+      if (!(await this.store.getUserById(payload.userId))) {
+        throw new Error('Invalid refresh token: user no longer exists');
+      }
+      const deviceId = typeof payload.deviceId === 'string' ? payload.deviceId : undefined;
+      if (deviceId && !(await this.store.getDevice(payload.userId, deviceId))) {
+        throw new Error('Invalid refresh token: device credential is no longer valid');
+      }
+      return this.generateTokens(payload.userId, deviceId);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invalid refresh token';
       throw new Error(message);

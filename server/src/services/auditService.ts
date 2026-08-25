@@ -6,6 +6,8 @@ import type {
 } from '@disciplineos/shared';
 import type { LocationEventRow, ProtectionEventRow } from '../db/interfaces.js';
 import type { DisciplineStore } from '../db/store.js';
+const MAX_LOCATION_CLOCK_SKEW_MS = 5 * 60 * 1000;
+const MAX_LOCATION_EVENT_AGE_MS = 24 * 60 * 60 * 1000;
 
 export class AuditService {
   constructor(private readonly store: DisciplineStore) {}
@@ -32,6 +34,19 @@ export class AuditService {
     userId: string,
     request: ReportLocationEventRequest,
   ): Promise<{ id: string; rewardGranted: boolean; balance?: TimeBankBalance }> {
+    const occurredAtMs = Date.parse(request.occurredAt);
+    if (!Number.isFinite(occurredAtMs)) {
+      throw new Error('Location event occurredAt must be a valid timestamp');
+    }
+    if (process.env.NODE_ENV === 'production') {
+      const now = Date.now();
+      if (occurredAtMs > now + MAX_LOCATION_CLOCK_SKEW_MS) {
+        throw new Error('Location event timestamp is too far in the future');
+      }
+      if (occurredAtMs < now - MAX_LOCATION_EVENT_AGE_MS) {
+        throw new Error('Location event timestamp is too old to reward');
+      }
+    }
     const event: LocationEventRow = {
       id: randomUUID(),
       userId,

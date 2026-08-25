@@ -43,7 +43,7 @@ describePostgres('PostgreSQL authority integration', () => {
     });
     const pairData = await pair.json();
     return {
-      token: registerData.tokens.accessToken as string,
+      token: pairData.tokens.accessToken as string,
       deviceId: pairData.device.id as string,
     };
   }
@@ -52,13 +52,17 @@ describePostgres('PostgreSQL authority integration', () => {
     const task = await pgApp.request('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ title: 'Persistent funding task', rewardSeconds, evidenceType: 'none' }),
+      body: JSON.stringify({ title: 'Persistent funding task', rewardSeconds, evidenceType: 'focus_timer' }),
     });
     const { task: createdTask } = await task.json();
     return pgApp.request(`/api/tasks/${createdTask.id}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ occurrenceDate, idempotencyKey: `persist-credit-${occurrenceDate}` }),
+      body: JSON.stringify({
+        occurrenceDate,
+        evidenceMeta: { sessionDurationSeconds: rewardSeconds },
+        idempotencyKey: `persist-credit-${occurrenceDate}`,
+      }),
     });
   }
 

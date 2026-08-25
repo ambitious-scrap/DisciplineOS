@@ -31,8 +31,11 @@ export function createLedgerRoutes(services: Services) {
   routes.post('/spend', async (c) => {
     try {
       const validated = SpendPointsSchema.parse(await c.req.json());
-      const deviceId = c.get('deviceId') || validated.deviceId;
-      if (!deviceId) return c.json({ error: 'Device ID required via device token or body' }, 400);
+      const deviceId = c.get('deviceId');
+      if (!deviceId) return c.json({ error: 'Device-scoped access token required' }, 401);
+      if (validated.deviceId && validated.deviceId !== deviceId) {
+        return c.json({ error: 'Body device ID does not match device credential' }, 403);
+      }
       return c.json(await services.ledger.spendPoints(c.get('userId'), { ...validated, deviceId }), 200);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Spend rejected';
@@ -43,8 +46,11 @@ export function createLedgerRoutes(services: Services) {
   routes.post('/emergency', async (c) => {
     try {
       const validated = EmergencyUnlockSchema.parse(await c.req.json());
-      const deviceId = c.get('deviceId') || validated.deviceId;
-      if (!deviceId) return c.json({ error: 'Device ID required via device token or body' }, 400);
+      const deviceId = c.get('deviceId');
+      if (!deviceId) return c.json({ error: 'Device-scoped access token required' }, 401);
+      if (validated.deviceId && validated.deviceId !== deviceId) {
+        return c.json({ error: 'Body device ID does not match device credential' }, 403);
+      }
       return c.json(await services.ledger.emergencyUnlock(c.get('userId'), { ...validated, deviceId }), 200);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Emergency unlock rejected';

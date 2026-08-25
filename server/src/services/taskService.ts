@@ -6,8 +6,15 @@ import type {
   TaskOccurrence,
   TimeBankBalance,
 } from '@disciplineos/shared';
+import { MAX_NO_EVIDENCE_REWARD_SECONDS } from '@disciplineos/shared';
 import type { TaskOccurrenceRow, TaskRow } from '../db/interfaces.js';
 import type { DisciplineStore } from '../db/store.js';
+function taskRewardSeconds(request: CreateTaskRequest): number {
+  const bounded = Math.min(3600, Math.max(60, request.rewardSeconds));
+  return request.evidenceType === 'none'
+    ? Math.min(MAX_NO_EVIDENCE_REWARD_SECONDS, bounded)
+    : bounded;
+}
 
 export class TaskService {
   constructor(private readonly store: DisciplineStore) {}
@@ -45,14 +52,14 @@ export class TaskService {
     const tasks = await this.store.getTasks(userId);
     return tasks.map((task) => this.toTask(task));
   }
-
   async createTask(userId: string, request: CreateTaskRequest): Promise<Task> {
+    const rewardSeconds = taskRewardSeconds(request);
     const task: TaskRow = {
       id: randomUUID(),
       userId,
       title: request.title,
       description: request.description ?? null,
-      rewardSeconds: Math.min(3600, Math.max(60, request.rewardSeconds)),
+      rewardSeconds,
       evidenceType: request.evidenceType,
       isRecurring: request.isRecurring,
       recurrenceCron: request.recurrenceCron ?? null,

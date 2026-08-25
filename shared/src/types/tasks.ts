@@ -16,14 +16,27 @@ export interface Task {
   createdAt: string;
 }
 
-// Reward is strictly bounded between 1 min (60s) and 1 hour (3600s) to prevent unbounded minting
+// Evidence-free tasks remain available for small manual wins; larger rewards require proof.
+export const MAX_NO_EVIDENCE_REWARD_SECONDS = 300;
+
 export const CreateTaskSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(1000).optional(),
-  rewardSeconds: z.number().int().min(60).max(3600).default(900), // 1m to 60m, default 15m
+  rewardSeconds: z.number().int().min(60).max(3600).default(900),
   evidenceType: EvidenceTypeSchema.default('none'),
   isRecurring: z.boolean().default(false),
   recurrenceCron: z.string().optional(),
+}).superRefine((task, context) => {
+  if (task.evidenceType === 'none' && task.rewardSeconds > MAX_NO_EVIDENCE_REWARD_SECONDS) {
+    context.addIssue({
+      code: z.ZodIssueCode.too_big,
+      maximum: MAX_NO_EVIDENCE_REWARD_SECONDS,
+      type: 'number',
+      inclusive: true,
+      path: ['rewardSeconds'],
+      message: 'Tasks without evidence are capped at 300 seconds',
+    });
+  }
 });
 export type CreateTaskRequest = z.infer<typeof CreateTaskSchema>;
 

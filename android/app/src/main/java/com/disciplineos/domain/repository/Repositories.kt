@@ -9,6 +9,10 @@ interface PolicyRepository {
     suspend fun isAppBlocked(packageName: String): Boolean
     suspend fun isDomainBlocked(domain: String): Boolean
     suspend fun syncPolicy(): Result<Unit>
+    suspend fun addApp(packageName: String, displayName: String): Result<Unit>
+    suspend fun addSite(domain: String): Result<Unit>
+    suspend fun requestRemoveApp(id: String): Result<Unit>
+    suspend fun requestRemoveSite(id: String): Result<Unit>
 }
 
 interface SessionRepository {

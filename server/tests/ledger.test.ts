@@ -24,6 +24,7 @@ describe('Immutable Ledger & Time Bank API', () => {
     });
     const pairData = await pair.json();
     deviceId = pairData.device.id;
+    token = pairData.tokens.accessToken;
   });
 
   it('should reject direct reward minting via deleted /api/bank/earn endpoint', async () => {
@@ -50,7 +51,7 @@ describe('Immutable Ledger & Time Bank API', () => {
       body: JSON.stringify({
         title: 'Deep Focus Sprint',
         rewardSeconds: 1800,
-        evidenceType: 'none',
+        evidenceType: 'focus_timer',
       }),
     });
     const taskData = await taskRes.json();
@@ -62,6 +63,7 @@ describe('Immutable Ledger & Time Bank API', () => {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         occurrenceDate: '2026-08-25',
+        evidenceMeta: { sessionDurationSeconds: 1800 },
         idempotencyKey: 'comp-idem-1',
       }),
     });
@@ -95,7 +97,7 @@ describe('Immutable Ledger & Time Bank API', () => {
       body: JSON.stringify({
         title: 'Workout Session',
         rewardSeconds: 1800,
-        evidenceType: 'none',
+        evidenceType: 'focus_timer',
       }),
     });
     const { task } = await taskRes.json();
@@ -105,6 +107,7 @@ describe('Immutable Ledger & Time Bank API', () => {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
         occurrenceDate: '2026-08-25',
+        evidenceMeta: { sessionDurationSeconds: 1800 },
         idempotencyKey: 'comp-idem-2',
       }),
     });

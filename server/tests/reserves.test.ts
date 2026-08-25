@@ -24,19 +24,23 @@ describe('Offline Device Reserves & Reconciliation API', () => {
     });
     const pairData = await pair.json();
     deviceId = pairData.device.id;
-
+    token = pairData.tokens.accessToken;
     // Credit 3600s balance via task completion
     const taskRes = await app.request('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ title: 'Fund Task', rewardSeconds: 3600, evidenceType: 'none' }),
+      body: JSON.stringify({ title: 'Fund Task', rewardSeconds: 3600, evidenceType: 'focus_timer' }),
     });
     const { task } = await taskRes.json();
 
     await app.request(`/api/tasks/${task.id}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ occurrenceDate: '2026-08-25', idempotencyKey: 'fund-reserves-task' }),
+      body: JSON.stringify({
+        occurrenceDate: '2026-08-25',
+        evidenceMeta: { sessionDurationSeconds: 3600 },
+        idempotencyKey: 'fund-reserves-task',
+      }),
     });
   });
 

@@ -86,4 +86,48 @@ class PolicyRepositoryImpl(
             Result.failure(e)
         }
     }
+    override suspend fun addApp(packageName: String, displayName: String): Result<Unit> {
+        return requestPolicyMutation { token ->
+            apiService.addBlockedApp(
+                "Bearer $token",
+                com.disciplineos.data.remote.dto.CreateBlockedAppRequestDto(
+                    identifier = packageName,
+                    displayName = displayName
+                )
+            )
+        }
+    }
+
+    override suspend fun addSite(domain: String): Result<Unit> {
+        return requestPolicyMutation { token ->
+            apiService.addBlockedSite(
+                "Bearer $token",
+                com.disciplineos.data.remote.dto.CreateBlockedSiteRequestDto(domain)
+            )
+        }
+    }
+
+    override suspend fun requestRemoveApp(id: String): Result<Unit> {
+        return requestPolicyMutation { token -> apiService.requestRemoveBlockedApp("Bearer $token", id) }
+    }
+
+    override suspend fun requestRemoveSite(id: String): Result<Unit> {
+        return requestPolicyMutation { token -> apiService.requestRemoveBlockedSite("Bearer $token", id) }
+    }
+
+    private suspend fun requestPolicyMutation(
+        request: suspend (token: String) -> retrofit2.Response<*>
+    ): Result<Unit> {
+        val token = tokenProvider() ?: return Result.failure(IllegalStateException("Not authenticated"))
+        return try {
+            val response = request(token)
+            if (response.isSuccessful) {
+                Result.success(Unit)
+            } else {
+                Result.failure(Exception("Policy removal request failed: ${response.code()} ${response.message()}"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
 }

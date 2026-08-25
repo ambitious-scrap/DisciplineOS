@@ -164,6 +164,10 @@ export class MemoryStore implements DisciplineStore {
   async getUserById(userId: string): Promise<UserRow | null> {
     return this.users.get(userId) ?? null;
   }
+  async getDevice(userId: string, deviceId: string): Promise<DeviceRow | null> {
+    const device = this.devices.get(deviceId);
+    return device && device.userId === userId ? device : null;
+  }
 
   async createDevice(device: DeviceRow): Promise<void> {
     await this.exclusive(() => {

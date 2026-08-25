@@ -5,6 +5,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.disciplineos.data.local.DisciplineDatabase
 import com.disciplineos.data.remote.DisciplineApiService
+import com.disciplineos.data.remote.dto.LoginRequestDto
+import com.disciplineos.data.remote.dto.PairDeviceRequestDto
 import com.disciplineos.data.repository.LedgerRepositoryImpl
 import com.disciplineos.data.repository.PolicyRepositoryImpl
 import com.disciplineos.data.repository.ReserveRepositoryImpl
@@ -25,7 +27,6 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
-import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 class DisciplineApplication : Application() {
@@ -74,20 +75,19 @@ class DisciplineApplication : Application() {
 
     var authToken: String? = null
         private set
+    val hasDeviceCredentials: Boolean
+        get() = deviceId.isNotBlank() && !authToken.isNullOrBlank()
 
     override fun onCreate() {
         super.onCreate()
 
-        prefs = getSharedPreferences("disciplineos_prefs", Context.MODE_PRIVATE)
-
-        // Initialize or retrieve persistent Device ID
-        deviceId = prefs.getString("device_id", null) ?: run {
-            val newId = UUID.randomUUID().toString()
-            prefs.edit().putString("device_id", newId).apply()
-            newId
+        // Only server-issued device identity and device-scoped access credentials are authoritative.
+        deviceId = prefs.getString("server_device_id", "") ?: ""
+        authToken = if (deviceId.isNotBlank()) {
+            prefs.getString("device_access_token", null)
+        } else {
+            null
         }
-
-        authToken = prefs.getString("auth_token", null)
 
         // Initialize Database
         database = DisciplineDatabase.getInstance(this)
@@ -151,14 +151,46 @@ class DisciplineApplication : Application() {
         emergencyUnlockUseCase = EmergencyUnlockUseCase(sessionRepository)
 
         // Foreground monitoring engine
-        foregroundAppDetector = ForegroundAppDetector(this, checkIsAppBlockedUseCase)
+        foregroundAppDetector = ForegroundAppDetector(
+            context = this,
+            checkIsAppBlockedUseCase = checkIsAppBlockedUseCase,
+            policyRepository = policyRepository,
+            sessionRepository = sessionRepository
+        )
 
         // Start background service
         DisciplineForegroundService.start(this)
     }
 
+    suspend fun authenticateAndPair(
+        email: String,
+        password: String,
+        deviceName: String
+    ): Result<Unit> = runCatching {
+        val loginResponse = apiService.login(LoginRequestDto(email, password))
+        val loginBody = loginResponse.body()
+            ?: error("Login failed with HTTP ${loginResponse.code()}")
+        val pairResponse = apiService.pairDevice(
+            token = "Bearer ${loginBody.tokens.accessToken}",
+            request = PairDeviceRequestDto(name = deviceName, platform = "android")
+        )
+        val pairBody = pairResponse.body()
+            ?: error("Device pairing failed with HTTP ${pairResponse.code()}")
+        deviceId = pairBody.device.id
+        authToken = pairBody.tokens.accessToken
+        prefs.edit()
+            .putString("server_device_id", deviceId)
+            .putString("device_access_token", authToken)
+            .putString("device_refresh_token", pairBody.tokens.refreshToken)
+            .putBoolean("device_paired", true)
+            .apply()
+    }
+
     fun updateAuthToken(token: String) {
         authToken = token
-        prefs.edit().putString("auth_token", token).apply()
+        prefs.edit()
+            .putString("device_access_token", token)
+            .putString("auth_token", token)
+            .apply()
     }
 }

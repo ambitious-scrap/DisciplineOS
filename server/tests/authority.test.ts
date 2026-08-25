@@ -19,7 +19,8 @@ async function registerAndPair(email: string) {
   });
   const pairData = await pair.json();
   return {
-    token: registerData.tokens.accessToken as string,
+    token: pairData.tokens.accessToken as string,
+    userToken: registerData.tokens.accessToken as string,
     refreshToken: registerData.tokens.refreshToken as string,
     deviceId: pairData.device.id as string,
   };
@@ -29,13 +30,17 @@ async function creditBalance(token: string, rewardSeconds = 3600) {
   const task = await app.request('/api/tasks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ title: 'Authority test task', rewardSeconds, evidenceType: 'none' }),
+    body: JSON.stringify({ title: 'Authority test task', rewardSeconds, evidenceType: 'focus_timer' }),
   });
   const taskData = await task.json();
   return app.request(`/api/tasks/${taskData.task.id}/complete`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ occurrenceDate: '2026-08-25', idempotencyKey: `credit-${Date.now()}-${Math.random()}` }),
+    body: JSON.stringify({
+      occurrenceDate: '2026-08-25',
+      evidenceMeta: { sessionDurationSeconds: rewardSeconds },
+      idempotencyKey: `credit-${Date.now()}-${Math.random()}`,
+    }),
   });
 }
 
@@ -51,16 +56,35 @@ describe('Backend authority invariants', () => {
     });
     expect(response.status).toBe(401);
   });
+  it('rejects device operations without a device-scoped access token', async () => {
+    const { userToken, deviceId } = await registerAndPair('device-scope-required@disciplineos.local');
+    const response = await app.request('/api/bank/spend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userToken}` },
+      body: JSON.stringify({
+        seconds: 60,
+        targetType: 'app',
+        targetIdentifier: 'com.example.app',
+        deviceId,
+        idempotencyKey: 'device-scope-required-1',
+      }),
+    });
+    expect(response.status).toBe(401);
+  });
 
   it('does not double-credit a repeated task idempotency key', async () => {
     const { token } = await registerAndPair('credit-idempotency@disciplineos.local');
     const task = await app.request('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ title: 'Idempotent task', rewardSeconds: 1200, evidenceType: 'none' }),
+      body: JSON.stringify({ title: 'Idempotent task', rewardSeconds: 1200, evidenceType: 'focus_timer' }),
     });
     const { task: createdTask } = await task.json();
-    const body = JSON.stringify({ occurrenceDate: '2026-08-25', idempotencyKey: 'credit-idempotency-1' });
+    const body = JSON.stringify({
+      occurrenceDate: '2026-08-25',
+      evidenceMeta: { sessionDurationSeconds: 1200 },
+      idempotencyKey: 'credit-idempotency-1',
+    });
     const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
     const first = await app.request(`/api/tasks/${createdTask.id}/complete`, { method: 'POST', headers, body });
     const replay = await app.request(`/api/tasks/${createdTask.id}/complete`, { method: 'POST', headers, body });
