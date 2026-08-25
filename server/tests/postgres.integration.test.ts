@@ -125,7 +125,7 @@ describePostgres('PostgreSQL authority integration', () => {
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ occurrenceDate: '2026-08-25', photoEvidenceId: evidenceId, idempotencyKey: 'pg-photo-complete-1' }),
     });
-    expect(complete.status).toBe(200);
+    expect(complete.status, await complete.clone().text()).toBe(200);
     const replay = await pgApp.request(`/api/tasks/${taskData.task.id}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
