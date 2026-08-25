@@ -41,7 +41,9 @@ function createPool(connectionString: string, connectionTimeoutMillis: number): 
 export async function initPostgresDatabase(
   options: PostgresInitOptions = {},
 ): Promise<pg.Pool | null> {
-  const connectionString = options.connectionString ?? process.env.DATABASE_URL ?? null;
+  const connectionString = Object.prototype.hasOwnProperty.call(options, 'connectionString')
+    ? options.connectionString ?? null
+    : process.env.DATABASE_URL ?? null;
   const environment = options.environment ?? process.env.NODE_ENV ?? 'development';
 
   if (!connectionString) {
