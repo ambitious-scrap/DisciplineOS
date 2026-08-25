@@ -91,6 +91,15 @@ function nullableIso(value: unknown): string | null {
   return value === null || value === undefined ? null : iso(value);
 }
 
+function dateOnly(value: unknown): string {
+  if (value instanceof Date) {
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${value.getFullYear()}-${month}-${day}`;
+  }
+  return String(value).slice(0, 10);
+}
+
 function leasePayloadValue(row: DbRow): LeasePayload | null {
   const value = row.lease_payload;
   return value && typeof value === 'object' ? value as LeasePayload : null;
@@ -193,7 +202,7 @@ export class PostgresStore implements DisciplineStore {
       id: text(row, 'id'),
       taskId: text(row, 'task_id'),
       userId: text(row, 'user_id'),
-      occurrenceDate: String(row.occurrence_date),
+      occurrenceDate: dateOnly(row.occurrence_date),
       completedAt: nullableIso(row.completed_at),
       evidenceUrl: optionalText(row, 'evidence_url'),
       evidenceSha256: optionalText(row, 'evidence_sha256'),
@@ -375,7 +384,7 @@ export class PostgresStore implements DisciplineStore {
       userId: text(row, 'user_id'),
       deviceId: text(row, 'device_id'),
       taskId: text(row, 'task_id'),
-      occurrenceDate: String(row.occurrence_date),
+      occurrenceDate: dateOnly(row.occurrence_date),
       sha256: text(row, 'sha256'),
       sourceUri: optionalText(row, 'source_uri'),
       idempotencyKey: text(row, 'idempotency_key'),
