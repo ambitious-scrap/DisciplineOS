@@ -23,30 +23,35 @@ class SessionRepositoryImpl(
     private val leaseVerifier: LeaseVerifier,
     private val onLeaseVerificationFailure: suspend (eventType: String, details: Map<String, Any>) -> Unit = { _, _ -> },
     private val bootIdProvider: () -> Long = { -1L },
+    private val policyRevisionProvider: suspend () -> Int = { 0 },
 ) : SessionRepository {
     private val bootChecked = AtomicBoolean(false)
     override fun getActiveLeasesFlow(): Flow<List<ActiveLease>> {
         return flow {
             ensureBootContinuity()
+            val policyRevision = policyRevisionProvider()
             emitAll(
                 leaseDao.getActiveLeasesFlow(
                     deviceIdProvider(),
                     bootIdProvider(),
                     android.os.SystemClock.elapsedRealtime(),
-                ),
+                ).map { entities ->
+                    entities.filter { it.policyVersion >= policyRevision }.map(::toDomain)
+                },
             )
-        }.map { entities -> entities.map(::toDomain) }
+        }
     }
 
     override suspend fun getActiveLeaseForIdentifier(identifier: String, type: String): ActiveLease? {
         ensureBootContinuity()
-        return leaseDao.getActiveLeaseForIdentifier(
+        val entity = leaseDao.getActiveLeaseForIdentifier(
             deviceId = deviceIdProvider(),
             bootId = bootIdProvider(),
             type = type,
             identifier = identifier,
             currentElapsedRealtime = android.os.SystemClock.elapsedRealtime(),
-        )?.let(::toDomain)
+        ) ?: return null
+        return if (entity.policyVersion >= policyRevisionProvider()) toDomain(entity) else null
     }
 
     override suspend fun requestUnlock(identifier: String, type: String, seconds: Int): Result<ActiveLease> {
@@ -119,6 +124,18 @@ class SessionRepositoryImpl(
                 throw failure
             }
             val verified = verificationResult.getOrThrow()
+            val currentPolicyRevision = policyRevisionProvider()
+            if (signedLease.payload.policyVersion < currentPolicyRevision) {
+                onLeaseVerificationFailure(
+                    "policy_stale",
+                    mapOf(
+                        "leaseId" to dto.id,
+                        "leasePolicyVersion" to signedLease.payload.policyVersion,
+                        "cachedPolicyVersion" to currentPolicyRevision,
+                    ),
+                )
+                error("Lease was issued under stale policy revision")
+            }
             val lease = ActiveLease(
                 id = dto.id,
                 deviceId = deviceId,

@@ -191,6 +191,7 @@ class DisciplineApplication : Application() {
                 eventReporter.report(eventType, details)
             },
             bootIdProvider = { BootIdentity.current(this) },
+            policyRevisionProvider = { policyRepository.getPolicyMetadata().revision },
         )
         ledgerRepository = LedgerRepositoryImpl(
             apiService = apiService,
