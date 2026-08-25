@@ -51,6 +51,7 @@ class LivePhotoCaptureActivity : ComponentActivity() {
                 },
                 onSubmit = {
                     val resultIntent = Intent().apply {
+                        putExtra(EXTRA_TASK_ID, intent.getStringExtra(EXTRA_TASK_ID))
                         putExtra(EXTRA_EVIDENCE_HASH, photoSha256)
                     }
                     setResult(Activity.RESULT_OK, resultIntent)
@@ -70,13 +71,12 @@ class LivePhotoCaptureActivity : ComponentActivity() {
         val bytes = stream.toByteArray()
         val md = MessageDigest.getInstance("SHA-256")
         val digest = md.digest(bytes)
-        return digest.fold("") { str, it -> str + "%02x".format(it) }
+        return digest.joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
     }
 
     companion object {
         const val EXTRA_EVIDENCE_HASH = "extra_evidence_hash"
         const val EXTRA_TASK_ID = "extra_task_id"
-        const val EXTRA_REWARD_SECONDS = "extra_reward_seconds"
     }
 }
 

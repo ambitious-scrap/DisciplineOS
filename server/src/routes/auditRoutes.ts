@@ -38,10 +38,7 @@ export function createAuditRoutes(services: Services) {
       const validated = ReportLocationEventSchema.parse(await c.req.json());
       const deviceId = c.get('deviceId');
       if (!deviceId) return c.json({ error: 'Device-scoped access token required' }, 401);
-      if (validated.deviceId !== deviceId) {
-        return c.json({ error: 'Body device ID does not match device credential' }, 403);
-      }
-      return c.json(await services.audit.recordLocationEvent(c.get('userId'), { ...validated, deviceId }), 201);
+      return c.json(await services.audit.recordLocationEvent(c.get('userId'), deviceId, validated), 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Could not record location event';
       return c.json({ error: message }, 400);

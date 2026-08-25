@@ -21,6 +21,33 @@ interface DisciplineApiService {
         @Body request: PairDeviceRequestDto
     ): Response<PairDeviceResponseDto>
 
+    @POST("/api/focus/start")
+    suspend fun startFocusSession(
+        @Header("Authorization") token: String,
+        @Body request: StartFocusSessionRequestDto,
+    ): Response<FocusSessionResponseDto>
+
+    @POST("/api/focus/{id}/heartbeat")
+    suspend fun heartbeatFocusSession(
+        @Header("Authorization") token: String,
+        @Path("id") sessionId: String,
+        @Body request: FocusHeartbeatRequestDto,
+    ): Response<FocusSessionResponseDto>
+
+    @POST("/api/focus/{id}/complete")
+    suspend fun completeFocusSession(
+        @Header("Authorization") token: String,
+        @Path("id") sessionId: String,
+        @Body request: CompleteFocusSessionRequestDto,
+    ): Response<FocusSessionResponseDto>
+
+    @POST("/api/focus/{id}/abandon")
+    suspend fun abandonFocusSession(
+        @Header("Authorization") token: String,
+        @Path("id") sessionId: String,
+        @Body request: AbandonFocusSessionRequestDto,
+    ): Response<FocusSessionResponseDto>
+
     @GET("/api/policy")
     suspend fun getPolicy(
         @Header("Authorization") token: String
@@ -41,6 +68,17 @@ interface DisciplineApiService {
     suspend fun getBalance(
         @Header("Authorization") token: String
     ): Response<TimeBankDto>
+
+    @GET("/api/tasks")
+    suspend fun getTasks(
+        @Header("Authorization") token: String,
+    ): Response<TaskListResponseDto>
+
+    @POST("/api/tasks")
+    suspend fun createTask(
+        @Header("Authorization") token: String,
+        @Body request: CreateTaskRequestDto,
+    ): Response<TaskResponseDto>
 
     @DELETE("/api/policy/apps/{id}")
     suspend fun requestRemoveBlockedApp(
@@ -66,11 +104,24 @@ interface DisciplineApiService {
         @Body request: EmergencyUnlockRequestDto
     ): Response<SessionResponseDto>
 
+    @POST("/api/tasks/{id}/evidence/photo")
+    suspend fun submitPhotoEvidence(
+        @Header("Authorization") token: String,
+        @Path("id") taskId: String,
+        @Body request: SubmitPhotoEvidenceRequestDto,
+    ): Response<PhotoEvidenceResponseDto>
+
     @POST("/api/reserves/allocate")
     suspend fun allocateReserve(
         @Header("Authorization") token: String,
         @Body request: AllocateReserveRequestDto
     ): Response<AllocateReserveResponseDto>
+
+    @POST("/api/events/location")
+    suspend fun reportLocationEvent(
+        @Header("Authorization") token: String,
+        @Body request: ReportLocationEventRequestDto,
+    ): Response<LocationEvidenceResponseDto>
 
     @POST("/api/reserves/reconcile")
     suspend fun reconcileReserves(

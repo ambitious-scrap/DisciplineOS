@@ -20,7 +20,7 @@ export const ProtectionDegradedTypeSchema = z.enum([
   'enforcement_reconciliation_failed',
   'app_unexpectedly_unsuspended',
   'protection_restored',
-])
+]);
 export type ProtectionDegradedType = z.infer<typeof ProtectionDegradedTypeSchema>;
 
 export const ReportProtectionEventSchema = z.object({
@@ -34,13 +34,21 @@ export type ReportProtectionEventRequest = z.infer<typeof ReportProtectionEventS
 export const LocationEventTypeSchema = z.enum(['enter', 'exit', 'dwell']);
 export type LocationEventType = z.infer<typeof LocationEventTypeSchema>;
 
+export const MovementTelemetrySchema = z.object({
+  stepDelta: z.number().int().min(0).max(200_000),
+  activeSeconds: z.number().int().min(0).max(86_400),
+  sampleCount: z.number().int().min(0).max(100_000),
+  monotonicDurationMs: z.number().int().nonnegative().optional(),
+}).strict();
+export type MovementTelemetry = z.infer<typeof MovementTelemetrySchema>;
+
 export const ReportLocationEventSchema = z.object({
-  deviceId: z.string().uuid(),
   locationType: z.enum(['home', 'gym', 'custom']),
+  placeIdentifier: z.string().min(1).max(128).default('default'),
   eventType: LocationEventTypeSchema,
-  dwellSeconds: z.number().int().min(0).optional(),
-  movementVerified: z.boolean().default(false),
-  occurredAt: z.string(),
+  movement: MovementTelemetrySchema.optional(),
+  clientOccurredAt: z.string().datetime().optional(),
+  clientMonotonicMs: z.number().int().nonnegative().optional(),
   idempotencyKey: z.string().min(8).max(128),
-});
+}).strict();
 export type ReportLocationEventRequest = z.infer<typeof ReportLocationEventSchema>;

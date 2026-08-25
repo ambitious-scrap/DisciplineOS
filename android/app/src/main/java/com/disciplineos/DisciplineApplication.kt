@@ -15,11 +15,14 @@ import com.disciplineos.data.local.DisciplineDatabase
 import com.disciplineos.data.remote.DisciplineApiService
 import com.disciplineos.data.remote.dto.LoginRequestDto
 import com.disciplineos.data.remote.dto.PairDeviceRequestDto
+import com.disciplineos.data.repository.FocusRepositoryImpl
 import com.disciplineos.data.repository.LedgerRepositoryImpl
+import com.disciplineos.data.repository.LocationEvidenceRepositoryImpl
 import com.disciplineos.data.repository.PolicyRepositoryImpl
 import com.disciplineos.data.repository.ReserveRepositoryImpl
 import com.disciplineos.data.repository.SessionRepositoryImpl
 import com.disciplineos.data.repository.TaskRepositoryImpl
+import com.disciplineos.domain.repository.FocusRepository
 import com.disciplineos.domain.repository.LedgerRepository
 import com.disciplineos.domain.repository.PolicyRepository
 import com.disciplineos.domain.repository.ReserveRepository
@@ -29,6 +32,7 @@ import com.disciplineos.domain.usecase.CheckIsAppBlockedUseCase
 import com.disciplineos.domain.usecase.CheckIsDomainBlockedUseCase
 import com.disciplineos.domain.usecase.EmergencyUnlockUseCase
 import com.disciplineos.domain.usecase.SpendUnlockUseCase
+import com.disciplineos.location.ActivityRecognitionTracker
 import com.disciplineos.enforcement.ClockIntegrityMonitor
 import com.disciplineos.enforcement.DeviceOwnerEnforcer
 import com.disciplineos.enforcement.EnforcementController
@@ -72,6 +76,15 @@ class DisciplineApplication : Application() {
     lateinit var sessionRepository: SessionRepository
         private set
 
+    lateinit var focusRepository: FocusRepository
+        private set
+
+
+    lateinit var locationEvidenceRepository: LocationEvidenceRepositoryImpl
+        private set
+
+    lateinit var activityRecognitionTracker: ActivityRecognitionTracker
+        private set
     lateinit var ledgerRepository: LedgerRepository
         private set
 
@@ -134,6 +147,7 @@ class DisciplineApplication : Application() {
         if (clockAnomaly) protectionStateManager.markDegraded(ProtectionFlag.CLOCK_ANOMALY)
 
         database = DisciplineDatabase.getInstance(this)
+        activityRecognitionTracker = ActivityRecognitionTracker(this)
         val refreshClient = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)
@@ -192,6 +206,16 @@ class DisciplineApplication : Application() {
             },
             bootIdProvider = { BootIdentity.current(this) },
             policyRevisionProvider = { policyRepository.getPolicyMetadata().revision },
+        )
+
+        focusRepository = FocusRepositoryImpl(
+            apiService = apiService,
+            deviceIdProvider = { deviceId },
+            tokenProvider = { credentialStore.read()?.accessToken },
+        )
+        locationEvidenceRepository = LocationEvidenceRepositoryImpl(
+            apiService = apiService,
+            tokenProvider = { credentialStore.read()?.accessToken },
         )
         ledgerRepository = LedgerRepositoryImpl(
             apiService = apiService,

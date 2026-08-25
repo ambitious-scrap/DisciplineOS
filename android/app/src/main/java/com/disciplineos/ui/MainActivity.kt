@@ -47,6 +47,7 @@ import com.disciplineos.ui.overlay.BlockOverlayActivity
 import com.disciplineos.vpn.DisciplineVpnService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
@@ -70,6 +71,8 @@ class MainActivity : ComponentActivity() {
             // Live app & site list from Room DB
             val app = application as DisciplineApplication
             var isPaired by remember { mutableStateOf(app.hasDeviceCredentials) }
+            val tasks by app.taskRepository.getTasksFlow().collectAsState(initial = emptyList())
+            var focusTaskId by remember { mutableStateOf<String?>(null) }
             var blockedApps by remember { mutableStateOf<List<BlockedAppEntity>>(emptyList()) }
             var blockedSites by remember { mutableStateOf<List<BlockedSiteEntity>>(emptyList()) }
             LaunchedEffect(Unit) {
@@ -79,6 +82,9 @@ class MainActivity : ComponentActivity() {
                     blockedSites = app.database.policyDao().getBlockedSites()
                 }
             }
+            LaunchedEffect(isPaired) {
+                if (isPaired) app.taskRepository.syncTasks()
+            }
 
             // VPN Permission Launcher
             val vpnLauncher = rememberLauncherForActivityResult(
@@ -87,7 +93,48 @@ class MainActivity : ComponentActivity() {
                 if (result.resultCode == Activity.RESULT_OK) {
                     startDisciplineVpn()
                 } else {
+
                     Toast.makeText(context, "VPN permission was not granted.", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            val photoCaptureLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.StartActivityForResult()
+            ) { result ->
+                val data = result.data
+                val taskId = data?.getStringExtra(LivePhotoCaptureActivity.EXTRA_TASK_ID)
+                val sha256 = data?.getStringExtra(LivePhotoCaptureActivity.EXTRA_EVIDENCE_HASH)
+                if (result.resultCode == Activity.RESULT_OK && taskId != null && sha256 != null) {
+                    lifecycleScope.launch {
+                        val occurrenceDate = LocalDate.now().toString()
+                        val completeResult = app.taskRepository.submitPhotoEvidence(taskId, occurrenceDate, sha256)
+                            .fold(
+                                onSuccess = { evidenceId ->
+                                    app.taskRepository.completeTask(
+                                        taskId = taskId,
+                                        occurrenceDate = occurrenceDate,
+                                        photoEvidenceId = evidenceId,
+                                    )
+                                },
+                                onFailure = { Result.failure(it) },
+                            )
+                        completeResult
+                            .onSuccess { balance ->
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "Photo task complete. Balance: ${balance.balanceSeconds / 60} mins.",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                                app.taskRepository.syncTasks()
+                            }
+                            .onFailure {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    it.message ?: "Photo task completion failed.",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                    }
                 }
             }
 
@@ -224,24 +271,77 @@ class MainActivity : ComponentActivity() {
 
                         2 -> FocusTimerScreen(
                             durationMinutes = 25,
-                            onFinishSession = {
-                                Toast.makeText(this@MainActivity, "🎉 Focus session complete! +25 mins earned.", Toast.LENGTH_LONG).show()
-                                selectedTab = 0
+                            onStartSession = {
+                                app.focusRepository.start(
+                                    plannedDurationSeconds = 25 * 60,
+                                    associatedTaskId = focusTaskId,
+                                ).map { it.id }
                             },
-                            onEmergencyCancel = {
-                                Toast.makeText(this@MainActivity, "Focus session aborted.", Toast.LENGTH_SHORT).show()
-                                selectedTab = 0
-                            }
+                            onHeartbeat = { sessionId ->
+                                app.focusRepository.heartbeat(sessionId)
+                            },
+                            onFinishSession = { sessionId ->
+                                app.focusRepository.complete(sessionId).mapCatching { result ->
+                                    val taskId = focusTaskId
+                                    if (taskId != null) {
+                                        app.taskRepository.completeTask(
+                                            taskId = taskId,
+                                            occurrenceDate = LocalDate.now().toString(),
+                                            evidenceSessionId = sessionId,
+                                        ).getOrThrow()
+                                    }
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "Focus session complete. Server reward: ${result.rewardSeconds / 60} mins.",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                    selectedTab = 0
+                                    focusTaskId = null
+                                    result.rewardSeconds
+                                }
+                            },
+                            onEmergencyCancel = { sessionId ->
+                                lifecycleScope.launch {
+                                    if (sessionId != null) app.focusRepository.abandon(sessionId)
+                                    Toast.makeText(this@MainActivity, "Focus session aborted.", Toast.LENGTH_SHORT).show()
+                                    selectedTab = 0
+                                    focusTaskId = null
+                                }
+                            },
                         )
 
                         3 -> TasksTabScreen(
-                            onStartPhotoCapture = {
+                            tasks = tasks,
+                            onStartPhotoCapture = { task ->
                                 val intent = Intent(this@MainActivity, LivePhotoCaptureActivity::class.java).apply {
-                                    putExtra(LivePhotoCaptureActivity.EXTRA_TASK_ID, "task-workout-1")
-                                    putExtra(LivePhotoCaptureActivity.EXTRA_REWARD_SECONDS, 1800)
+                                    putExtra(LivePhotoCaptureActivity.EXTRA_TASK_ID, task.id)
                                 }
-                                startActivity(intent)
-                            }
+                                photoCaptureLauncher.launch(intent)
+                            },
+                            onStartFocus = { task ->
+                                focusTaskId = task.id
+                                selectedTab = 2
+                            },
+                            onCompleteTask = { task ->
+                                lifecycleScope.launch {
+                                    app.taskRepository.completeTask(task.id, LocalDate.now().toString())
+                                        .onSuccess { balance ->
+                                            Toast.makeText(
+                                                this@MainActivity,
+                                                "Task complete. Balance: ${balance.balanceSeconds / 60} mins.",
+                                                Toast.LENGTH_LONG,
+                                            ).show()
+                                            app.taskRepository.syncTasks()
+                                        }
+                                        .onFailure {
+                                            Toast.makeText(
+                                                this@MainActivity,
+                                                it.message ?: "Task completion failed.",
+                                                Toast.LENGTH_LONG,
+                                            ).show()
+                                        }
+                                }
+                            },
                         )
                     }
                 }
@@ -730,41 +830,46 @@ fun BlocklistScreen(
 
 @Composable
 fun TasksTabScreen(
-    onStartPhotoCapture: () -> Unit
+    tasks: List<TaskItem>,
+    onStartPhotoCapture: (TaskItem) -> Unit,
+    onStartFocus: (TaskItem) -> Unit,
+    onCompleteTask: (TaskItem) -> Unit,
 ) {
-    val tasks = remember {
-        listOf(
-            TaskItem("t-1", "30-Min Workout / Gym Session", "Physical workout verified with real-time camera proof", 1800, "photo", true),
-            TaskItem("t-2", "Deep Coding Sprint (45 mins)", "Continuous focused engineering without distraction", 2700, "none", true),
-            TaskItem("t-3", "Read 20 Pages of a Book", "Focus reading session", 1200, "photo", true)
-        )
-    }
-
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
             Text(
                 text = "Productivity Tasks & Rewards",
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFFF8FAFC)
+                color = Color(0xFFF8FAFC),
             )
             Text(
                 text = "Complete real-world habits to earn focus points in your Time Bank.",
                 fontSize = 13.sp,
-                color = Color(0xFF94A3B8)
+                color = Color(0xFF94A3B8),
             )
+        }
+
+        if (tasks.isEmpty()) {
+            item {
+                Text(
+                    text = "No server tasks available.",
+                    color = Color(0xFF64748B),
+                    modifier = Modifier.padding(top = 24.dp),
+                )
+            }
         }
 
         items(tasks) { task ->
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(task.title, fontWeight = FontWeight.Bold, color = Color(0xFFF8FAFC), fontSize = 16.sp)
@@ -775,22 +880,35 @@ fun TasksTabScreen(
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             text = "+${task.rewardSeconds / 60} mins",
                             color = Color(0xFF22C55E),
                             fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
+                            fontSize = 14.sp,
                         )
 
                         Button(
-                            onClick = onStartPhotoCapture,
+                            onClick = {
+                                when (task.evidenceType) {
+                                    "photo" -> onStartPhotoCapture(task)
+                                    "focus_timer" -> onStartFocus(task)
+                                    else -> onCompleteTask(task)
+                                }
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
                             shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                         ) {
-                            Text(if (task.evidenceType == "photo") "📸 Verify Proof" else "Claim Reward", fontSize = 12.sp)
+                            Text(
+                                when (task.evidenceType) {
+                                    "photo" -> "Verify Proof"
+                                    "focus_timer" -> "Start Focus"
+                                    else -> "Claim Reward"
+                                },
+                                fontSize = 12.sp,
+                            )
                         }
                     }
                 }

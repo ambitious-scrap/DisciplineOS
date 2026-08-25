@@ -74,3 +74,13 @@ data class OfflineSpendRecord(
     val isEmergency: Boolean,
     val isReconciled: Boolean
 )
+
+data class FocusSession(
+    val id: String,
+    val plannedDurationSeconds: Int,
+    val serverStartedAt: String,
+    val status: String,
+    val observedDurationSeconds: Int,
+    val rewardSeconds: Int,
+    val rewardClaimed: Boolean,
+)

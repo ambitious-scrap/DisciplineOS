@@ -6,7 +6,6 @@ import type {
   LeasePayload,
   SignedLease,
   SpendPointsRequest,
-  StartFocusSessionRequest,
 } from '@disciplineos/shared';
 import type { ActiveUnlockRow } from '../db/interfaces.js';
 import type { DisciplineStore, UnlockSessionInput } from '../db/store.js';
@@ -165,36 +164,6 @@ export class SessionService {
     });
   }
 
-  async startFocusSession(userId: string, request: StartFocusSessionRequest): Promise<ActiveUnlockSession> {
-    const sessionId = randomUUID();
-    const startedAt = new Date().toISOString();
-    const expiresAt = new Date(Date.now() + request.durationSeconds * 1000).toISOString();
-    const lease = await this.createLease({
-      leaseId: sessionId,
-      userId,
-      deviceId: request.deviceId,
-      targetType: 'focus',
-      targetIdentifier: 'all',
-      issuedAt: startedAt,
-      expiresAt,
-      durationSeconds: request.durationSeconds,
-      isEmergency: false,
-    });
-    return this.persistSession({
-      id: sessionId,
-      userId,
-      deviceId: request.deviceId,
-      unlockType: 'focus',
-      identifier: 'all',
-      durationSeconds: request.durationSeconds,
-      startedAt,
-      expiresAt,
-      isEmergency: false,
-      idempotencyKey: request.idempotencyKey,
-      costSeconds: 0,
-      lease,
-    });
-  }
 
   async releaseSession(userId: string, sessionId: string, deviceId: string): Promise<boolean> {
     return this.store.releaseUnlock(userId, sessionId, deviceId);

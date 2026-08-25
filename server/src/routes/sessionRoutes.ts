@@ -1,9 +1,8 @@
 import { Hono } from 'hono';
 import {
-  SpendPointsSchema,
   EmergencyUnlockSchema,
-  StartFocusSessionSchema,
   ReleaseSessionSchema,
+  SpendPointsSchema,
 } from '@disciplineos/shared';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import type { AppEnv } from '../types.js';
@@ -51,22 +50,6 @@ export function createSessionRoutes(services: Services) {
       return c.json({ session }, 201);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Emergency unlock rejected';
-      return c.json({ error: message }, 400);
-    }
-  });
-
-  routes.post('/focus', async (c) => {
-    try {
-      const validated = StartFocusSessionSchema.parse(await c.req.json());
-      const deviceId = c.get('deviceId');
-      if (!deviceId) return c.json({ error: 'Device-scoped access token required' }, 401);
-      if (validated.deviceId !== deviceId) {
-        return c.json({ error: 'Body device ID does not match device credential' }, 403);
-      }
-      const session = await services.sessions.startFocusSession(c.get('userId'), { ...validated, deviceId });
-      return c.json({ session }, 201);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Focus session rejected';
       return c.json({ error: message }, 400);
     }
   });

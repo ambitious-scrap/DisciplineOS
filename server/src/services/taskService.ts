@@ -2,18 +2,16 @@ import { randomUUID } from 'node:crypto';
 import type {
   CompleteTaskRequest,
   CreateTaskRequest,
+  SubmitPhotoEvidenceRequest,
   Task,
   TaskOccurrence,
   TimeBankBalance,
 } from '@disciplineos/shared';
-import { MAX_NO_EVIDENCE_REWARD_SECONDS } from '@disciplineos/shared';
 import type { TaskOccurrenceRow, TaskRow } from '../db/interfaces.js';
 import type { DisciplineStore } from '../db/store.js';
-function taskRewardSeconds(request: CreateTaskRequest): number {
-  const bounded = Math.min(3600, Math.max(60, request.rewardSeconds));
-  return request.evidenceType === 'none'
-    ? Math.min(MAX_NO_EVIDENCE_REWARD_SECONDS, bounded)
-    : bounded;
+
+function activityForTask(evidenceType: TaskRow['evidenceType']): 'manual' | 'photo' | 'focus' {
+  return evidenceType === 'none' ? 'manual' : evidenceType === 'photo' ? 'photo' : 'focus';
 }
 
 export class TaskService {
@@ -43,6 +41,9 @@ export class TaskService {
       completedAt: occurrence.completedAt,
       evidenceUrl: occurrence.evidenceUrl,
       evidenceSha256: occurrence.evidenceSha256,
+      evidenceSessionId: occurrence.evidenceSessionId,
+      photoEvidenceId: occurrence.photoEvidenceId,
+      rewardSeconds: occurrence.rewardSeconds ?? 0,
       rewardClaimed: occurrence.rewardClaimed,
       createdAt: occurrence.createdAt,
     };
@@ -52,14 +53,15 @@ export class TaskService {
     const tasks = await this.store.getTasks(userId);
     return tasks.map((task) => this.toTask(task));
   }
+
   async createTask(userId: string, request: CreateTaskRequest): Promise<Task> {
-    const rewardSeconds = taskRewardSeconds(request);
+    const policy = await this.store.getRewardPolicy(userId, activityForTask(request.evidenceType));
     const task: TaskRow = {
       id: randomUUID(),
       userId,
       title: request.title,
       description: request.description ?? null,
-      rewardSeconds,
+      rewardSeconds: Math.max(60, policy.maxRewardSeconds),
       evidenceType: request.evidenceType,
       isRecurring: request.isRecurring,
       recurrenceCron: request.recurrenceCron ?? null,
@@ -70,37 +72,50 @@ export class TaskService {
     return this.toTask(task);
   }
 
+  async submitPhotoEvidence(
+    userId: string,
+    deviceId: string,
+    taskId: string,
+    request: SubmitPhotoEvidenceRequest,
+  ) {
+    return this.store.submitPhotoEvidence({
+      id: randomUUID(),
+      userId,
+      deviceId,
+      taskId,
+      occurrenceDate: request.occurrenceDate,
+      sha256: request.sha256,
+      sourceUri: request.sourceUri ?? null,
+      idempotencyKey: request.idempotencyKey,
+    });
+  }
+
   async completeTaskOccurrence(
     userId: string,
     taskId: string,
+    deviceId: string | undefined,
     request: CompleteTaskRequest,
   ): Promise<{ occurrence: TaskOccurrence; balance: TimeBankBalance }> {
     const task = await this.store.getTask(userId, taskId);
     if (!task) throw new Error('Task not found');
-    if (task.evidenceType === 'photo' && !request.evidenceUrl && !request.evidenceSha256) {
-      throw new Error('Photo proof (evidenceUrl or evidenceSha256) is strictly required to complete this task');
+    const evidenceDeviceRequired = task.evidenceType !== 'none';
+    if (evidenceDeviceRequired && !deviceId) {
+      throw new Error('Device-scoped access token required for evidence-backed tasks');
     }
-    if (task.evidenceType === 'focus_timer' && !request.evidenceMeta?.sessionDurationSeconds) {
-      throw new Error('Focus session telemetry is strictly required to complete this task');
+    if (task.evidenceType === 'focus_timer' && !request.evidenceSessionId) {
+      throw new Error('Completed verified focus session is required to complete this task');
     }
-
-    const now = new Date().toISOString();
-    const occurrence: TaskOccurrenceRow = {
+    if (task.evidenceType === 'photo' && !request.photoEvidenceId) {
+      throw new Error('Server-registered photo evidence is required to complete this task');
+    }
+    const result = await this.store.completeTaskWithEvidence({
       id: randomUUID(),
-      taskId,
       userId,
+      deviceId: deviceId ?? null,
+      taskId,
       occurrenceDate: request.occurrenceDate,
-      completedAt: now,
-      evidenceUrl: request.evidenceUrl ?? null,
-      evidenceSha256: request.evidenceSha256 ?? null,
-      rewardClaimed: true,
-      createdAt: now,
-      idempotencyKey: request.idempotencyKey,
-    };
-    const result = await this.store.completeTaskOccurrence(userId, taskId, occurrence, {
-      source: 'task',
-      seconds: task.rewardSeconds,
-      description: `Completed task: ${task.title} (${request.occurrenceDate})`,
+      focusSessionId: request.evidenceSessionId ?? null,
+      photoEvidenceId: request.photoEvidenceId ?? null,
       idempotencyKey: request.idempotencyKey,
     });
     return { occurrence: this.toOccurrence(result.occurrence), balance: result.balance };

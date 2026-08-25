@@ -2,12 +2,9 @@ import { randomUUID } from 'node:crypto';
 import type {
   ReportLocationEventRequest,
   ReportProtectionEventRequest,
-  TimeBankBalance,
 } from '@disciplineos/shared';
 import type { LocationEventRow, ProtectionEventRow } from '../db/interfaces.js';
 import type { DisciplineStore } from '../db/store.js';
-const MAX_LOCATION_CLOCK_SKEW_MS = 5 * 60 * 1000;
-const MAX_LOCATION_EVENT_AGE_MS = 24 * 60 * 60 * 1000;
 
 export class AuditService {
   constructor(private readonly store: DisciplineStore) {}
@@ -32,51 +29,29 @@ export class AuditService {
 
   async recordLocationEvent(
     userId: string,
+    deviceId: string,
     request: ReportLocationEventRequest,
-  ): Promise<{ id: string; rewardGranted: boolean; balance?: TimeBankBalance }> {
-    const occurredAtMs = Date.parse(request.occurredAt);
-    if (!Number.isFinite(occurredAtMs)) {
-      throw new Error('Location event occurredAt must be a valid timestamp');
-    }
-    if (process.env.NODE_ENV === 'production') {
-      const now = Date.now();
-      if (occurredAtMs > now + MAX_LOCATION_CLOCK_SKEW_MS) {
-        throw new Error('Location event timestamp is too far in the future');
-      }
-      if (occurredAtMs < now - MAX_LOCATION_EVENT_AGE_MS) {
-        throw new Error('Location event timestamp is too old to reward');
-      }
-    }
+  ) {
+    const serverReceivedAt = new Date().toISOString();
     const event: LocationEventRow = {
       id: randomUUID(),
       userId,
-      deviceId: request.deviceId,
+      deviceId,
+      locationSessionId: null,
       locationType: request.locationType,
+      placeIdentifier: request.placeIdentifier,
       eventType: request.eventType,
-      dwellSeconds: request.dwellSeconds,
-      movementVerified: request.movementVerified,
-      occurredAt: request.occurredAt,
+      stepDelta: request.movement?.stepDelta ?? 0,
+      activeSeconds: request.movement?.activeSeconds ?? 0,
+      sampleCount: request.movement?.sampleCount ?? 0,
+      clientOccurredAt: request.clientOccurredAt ?? null,
+      clientMonotonicMs: request.clientMonotonicMs ?? null,
+      dwellSeconds: undefined,
+      movementVerified: false,
+      occurredAt: serverReceivedAt,
       idempotencyKey: request.idempotencyKey,
-      createdAt: new Date().toISOString(),
+      createdAt: serverReceivedAt,
     };
-    const reward =
-      request.locationType === 'gym'
-        ? {
-            source: 'gym' as const,
-            rewardSeconds: 3600,
-            minimumDurationSeconds: 1800,
-            requiresMovement: true,
-            descriptionPrefix: 'Verified gym session',
-          }
-        : request.locationType === 'home'
-          ? {
-              source: 'outside' as const,
-              rewardSeconds: 1800,
-              minimumDurationSeconds: 3600,
-              requiresMovement: true,
-              descriptionPrefix: 'Verified outdoor activity',
-            }
-          : undefined;
-    return this.store.recordLocationEvent(event, reward);
+    return this.store.recordLocationEvidence(event);
   }
 }

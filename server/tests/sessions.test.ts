@@ -11,6 +11,7 @@ const leasePublicKey = createPublicKey({
 
 describe('Active Sessions & Global Distraction Lock API', () => {
   let token: string;
+  let userId: string;
   let phoneToken: string;
   let tabletToken: string;
   let phoneDeviceId: string;
@@ -25,6 +26,7 @@ describe('Active Sessions & Global Distraction Lock API', () => {
       body: JSON.stringify({ email: 'sessions@disciplineos.local', password: 'password123' }),
     });
     const regData = await reg.json();
+    userId = regData.user.id;
     token = regData.tokens.accessToken;
 
     const pPair = await app.request('/api/auth/pair', {
@@ -45,21 +47,7 @@ describe('Active Sessions & Global Distraction Lock API', () => {
     tabletDeviceId = tData.device.id;
     tabletToken = tData.tokens.accessToken;
 
-    const taskRes = await app.request('/api/tasks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ title: 'Fund Task', rewardSeconds: 3600, evidenceType: 'focus_timer' }),
-    });
-    const { task } = await taskRes.json();
-    await app.request(`/api/tasks/${task.id}/complete`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        occurrenceDate: '2026-08-25',
-        evidenceMeta: { sessionDurationSeconds: 3600 },
-        idempotencyKey: 'fund-sessions-task',
-      }),
-    });
+    db.timeBanks.get(userId)!.balanceSeconds = 1_800;
   });
 
   it('starts an Ed25519-signed lease and enforces global lock', async () => {

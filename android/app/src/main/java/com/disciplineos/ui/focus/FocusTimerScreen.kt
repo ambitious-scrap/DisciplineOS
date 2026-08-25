@@ -18,18 +18,48 @@ import kotlinx.coroutines.delay
 @Composable
 fun FocusTimerScreen(
     durationMinutes: Int = 25,
-    onFinishSession: () -> Unit,
-    onEmergencyCancel: () -> Unit
+    onStartSession: suspend () -> Result<String>,
+    onHeartbeat: suspend (String) -> Unit,
+    onFinishSession: suspend (String) -> Result<Int?>,
+    onEmergencyCancel: (String?) -> Unit,
 ) {
     var totalSecondsRemaining by remember { mutableStateOf(durationMinutes * 60) }
-    var isRunning by remember { mutableStateOf(true) }
+    var isRunning by remember { mutableStateOf(false) }
+    var serverSessionId by remember { mutableStateOf<String?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var completionRequested by remember { mutableStateOf(false) }
 
-    LaunchedEffect(isRunning, totalSecondsRemaining) {
+    LaunchedEffect(Unit) {
+        val result = onStartSession()
+        result.fold(
+            onSuccess = {
+                serverSessionId = it
+                isRunning = true
+            },
+            onFailure = {
+                errorMessage = it.message ?: "Could not start server focus session"
+            },
+        )
+    }
+
+    LaunchedEffect(serverSessionId, isRunning) {
+        val sessionId = serverSessionId ?: return@LaunchedEffect
+        while (isRunning) {
+            delay(30_000)
+            if (isRunning) onHeartbeat(sessionId)
+        }
+    }
+
+    LaunchedEffect(isRunning, totalSecondsRemaining, serverSessionId) {
         if (isRunning && totalSecondsRemaining > 0) {
             delay(1000)
             totalSecondsRemaining--
-        } else if (totalSecondsRemaining == 0) {
-            onFinishSession()
+        } else if (isRunning && totalSecondsRemaining == 0 && !completionRequested) {
+            val sessionId = serverSessionId ?: return@LaunchedEffect
+            completionRequested = true
+            isRunning = false
+            val result = onFinishSession(sessionId)
+            result.onFailure { errorMessage = it.message ?: "Server rejected focus completion" }
         }
     }
 
@@ -39,60 +69,52 @@ fun FocusTimerScreen(
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = Color(0xFF020617)
+        color = Color(0xFF020617),
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(32.dp),
+            modifier = Modifier.fillMaxSize().padding(32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = "🎯 Deep Focus Mode",
+                    text = "Deep Focus Mode",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFFF8FAFC)
+                    color = Color(0xFFF8FAFC),
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Distractions are locked across all connected devices.",
+                    text = errorMessage ?: "The server owns the focus timer and reward.",
                     fontSize = 13.sp,
-                    color = Color(0xFF94A3B8)
+                    color = if (errorMessage == null) Color(0xFF94A3B8) else Color(0xFFEF4444),
                 )
             }
 
-            // Circular Countdown Display
             Box(
-                modifier = Modifier
-                    .size(240.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF1E293B)),
-                contentAlignment = Alignment.Center
+                modifier = Modifier.size(240.dp).clip(CircleShape).background(Color(0xFF1E293B)),
+                contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = formattedTime,
                     fontSize = 48.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color(0xFF38BDF8)
+                    color = Color(0xFF38BDF8),
                 )
             }
 
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "Earn: +${durationMinutes} mins upon completion",
+                    text = "Reward is calculated from server-observed time",
                     color = Color(0xFF22C55E),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
                 )
-
                 Spacer(modifier = Modifier.height(24.dp))
-
                 TextButton(
-                    onClick = onEmergencyCancel,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                    onClick = { onEmergencyCancel(serverSessionId) },
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
                 ) {
                     Text("Emergency Abort (No Points Awarded)", color = Color(0xFFEF4444), fontSize = 13.sp)
                 }

@@ -25,16 +25,29 @@ interface SessionRepository {
     suspend fun clearExpiredLeases()
 }
 
+interface FocusRepository {
+    suspend fun start(plannedDurationSeconds: Int, associatedTaskId: String? = null): Result<FocusSession>
+    suspend fun heartbeat(sessionId: String): Result<FocusSession>
+    suspend fun complete(sessionId: String): Result<FocusSession>
+    suspend fun abandon(sessionId: String): Result<FocusSession>
+}
+
 interface LedgerRepository {
     fun getTimeBankFlow(): Flow<TimeBank?>
     suspend fun syncBalance(): Result<TimeBank>
-    suspend fun claimTaskReward(taskId: String, occurrenceDate: String, evidenceUrl: String?): Result<TimeBank>
+    suspend fun claimTaskReward(
+        taskId: String,
+        occurrenceDate: String,
+        evidenceSessionId: String? = null,
+        photoEvidenceId: String? = null,
+    ): Result<TimeBank>
 }
-
 interface TaskRepository {
     fun getTasksFlow(): Flow<List<TaskItem>>
-    suspend fun createTask(title: String, description: String?, rewardSeconds: Int, evidenceType: String, isRecurring: Boolean): Result<TaskItem>
-    suspend fun completeTask(taskId: String, occurrenceDate: String, evidenceUrl: String?): Result<TimeBank>
+    suspend fun syncTasks(): Result<Unit>
+    suspend fun submitPhotoEvidence(taskId: String, occurrenceDate: String, sha256: String): Result<String>
+    suspend fun createTask(title: String, description: String?, evidenceType: String, isRecurring: Boolean): Result<TaskItem>
+    suspend fun completeTask(taskId: String, occurrenceDate: String, evidenceSessionId: String? = null, photoEvidenceId: String? = null): Result<TimeBank>
 }
 
 interface ReserveRepository {

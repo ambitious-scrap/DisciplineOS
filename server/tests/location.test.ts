@@ -1,152 +1,128 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { app } from '../src/app.js';
 import { db } from '../src/db/memoryStore.js';
 
 describe('Location & Physical Movement Verification API', () => {
   let token: string;
+  let userToken: string;
   let deviceId: string;
-
+  let tabletToken: string;
   beforeEach(async () => {
     db.clear();
-
     const reg = await app.request('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'location@disciplineos.local', password: 'password123' }),
     });
     const regData = await reg.json();
-    token = regData.tokens.accessToken;
-
+    userToken = regData.tokens.accessToken;
     const pair = await app.request('/api/auth/pair', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userToken}` },
       body: JSON.stringify({ name: 'Pixel Phone', platform: 'android' }),
     });
     const pairData = await pair.json();
     deviceId = pairData.device.id;
     token = pairData.tokens.accessToken;
+    const tablet = await app.request('/api/auth/pair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${userToken}` },
+      body: JSON.stringify({ name: 'Tablet', platform: 'android' }),
+    });
+    tabletToken = (await tablet.json()).tokens.accessToken;
+
   });
-  it('rejects malformed location timestamps before evidence processing', async () => {
+  it('rejects malformed client timestamps before evidence processing', async () => {
     const response = await app.request('/api/events/location', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
-        deviceId,
         locationType: 'gym',
         eventType: 'enter',
-        occurredAt: 'not-a-timestamp',
+        clientOccurredAt: 'not-a-timestamp',
         idempotencyKey: 'invalid-location-time',
       }),
     });
     expect(response.status).toBe(400);
   });
 
-
-  it('should award 60 min points for reconstructed gym session of at least 30 mins', async () => {
-    const enterTime = new Date('2026-08-25T07:00:00Z').toISOString();
-    const exitTime = new Date('2026-08-25T07:45:00Z').toISOString(); // 45 mins later
-
-    // 1. Enter gym
-    await app.request('/api/events/location', {
+  it('does not reward an immediate enter/exit even with a fake old client time', async () => {
+    const oldTime = '2020-01-01T07:00:00.000Z';
+    const enter = await app.request('/api/events/location', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        deviceId,
-        locationType: 'gym',
-        eventType: 'enter',
-        occurredAt: enterTime,
-        idempotencyKey: 'gym-enter-1',
-      }),
+      body: JSON.stringify({ locationType: 'gym', eventType: 'enter', clientOccurredAt: oldTime, idempotencyKey: 'gym-enter-immediate' }),
     });
+    expect(enter.status).toBe(201);
 
-    // 2. Exit gym with movement verified
-    const res = await app.request('/api/events/location', {
+    const exit = await app.request('/api/events/location', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
-        deviceId,
         locationType: 'gym',
         eventType: 'exit',
-        movementVerified: true,
-        occurredAt: exitTime,
-        idempotencyKey: 'gym-exit-1',
+        clientOccurredAt: oldTime,
+        movement: { stepDelta: 10_000, activeSeconds: 1_800, sampleCount: 30 },
+        idempotencyKey: 'gym-exit-immediate',
       }),
     });
-
-    expect(res.status).toBe(201);
-    const data = await res.json();
-    expect(data.rewardGranted).toBe(true);
-    expect(data.balance.balanceSeconds).toBe(3600); // 1 hour reward
+    expect(exit.status).toBe(201);
+    expect((await exit.json()).rewardGranted).toBe(false);
   });
 
-  it('should award 30 min points for outdoor activity (leaving home -> returning >= 60m later)', async () => {
-    const leaveHomeTime = new Date('2026-08-25T14:00:00Z').toISOString();
-    const returnHomeTime = new Date('2026-08-25T15:15:00Z').toISOString(); // 75 mins later
-
-    // 1. Exit home
+  it('uses server session time and server-evaluated movement for gym reward', async () => {
     await app.request('/api/events/location', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        deviceId,
-        locationType: 'home',
-        eventType: 'exit',
-        occurredAt: leaveHomeTime,
-        idempotencyKey: 'outdoor-leave-home',
-      }),
+      body: JSON.stringify({ locationType: 'gym', eventType: 'enter', idempotencyKey: 'gym-enter-server-time' }),
     });
+    const session = [...db.locationSessions.values()][0];
+    session.serverStartedAt = new Date(Date.now() - 45 * 60_000).toISOString();
 
-    // 2. Return home with movement verified
-    const res = await app.request('/api/events/location', {
+    const exit = await app.request('/api/events/location', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({
-        deviceId,
-        locationType: 'home',
-        eventType: 'enter',
-        movementVerified: true,
-        occurredAt: returnHomeTime,
-        idempotencyKey: 'outdoor-return-home',
+        locationType: 'gym',
+        eventType: 'exit',
+        movement: { stepDelta: 10_000, activeSeconds: 1_800, sampleCount: 30 },
+        idempotencyKey: 'gym-exit-server-time',
       }),
     });
-
-    expect(res.status).toBe(201);
-    const data = await res.json();
+    expect(exit.status).toBe(201);
+    const data = await exit.json();
     expect(data.rewardGranted).toBe(true);
-    expect(data.balance.balanceSeconds).toBe(1800); // 30 min outdoor reward
+    expect(data.balance.balanceSeconds).toBe(2_700);
   });
 
-  it('should not award gym points if dwell time is under threshold or movement unverified', async () => {
-    const enterTime = new Date('2026-08-25T07:00:00Z').toISOString();
-    const exitTime = new Date('2026-08-25T07:10:00Z').toISOString(); // only 10 mins
-
-    await app.request('/api/events/location', {
+  it('does not combine phone enter with tablet exit', async () => {
+    const enter = await app.request('/api/events/location', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        deviceId,
-        locationType: 'gym',
-        eventType: 'enter',
-        occurredAt: enterTime,
-        idempotencyKey: 'gym-short-enter',
-      }),
+      body: JSON.stringify({ locationType: 'gym', eventType: 'enter', idempotencyKey: 'phone-enter-tablet-exit-enter' }),
     });
-
-    const res = await app.request('/api/events/location', {
+    expect(enter.status).toBe(201);
+    const exit = await app.request('/api/events/location', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tabletToken}` },
       body: JSON.stringify({
-        deviceId,
         locationType: 'gym',
         eventType: 'exit',
-        movementVerified: true,
-        occurredAt: exitTime,
-        idempotencyKey: 'gym-short-exit',
+        movement: { stepDelta: 10_000, activeSeconds: 1_800, sampleCount: 30 },
+        idempotencyKey: 'phone-enter-tablet-exit-exit',
       }),
     });
+    expect(exit.status).toBe(201);
+    expect((await exit.json()).rewardGranted).toBe(false);
+  });
 
-    expect(res.status).toBe(201);
-    const data = await res.json();
-    expect(data.rewardGranted).toBe(false);
+  it('is idempotent for duplicate location events', async () => {
+    const body = JSON.stringify({ locationType: 'gym', eventType: 'enter', idempotencyKey: 'duplicate-location-event' });
+    const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+    const first = await app.request('/api/events/location', { method: 'POST', headers, body });
+    const replay = await app.request('/api/events/location', { method: 'POST', headers, body });
+    expect(first.status).toBe(201);
+    expect(replay.status).toBe(201);
+    expect((await first.json()).id).toBe((await replay.json()).id);
   });
 });

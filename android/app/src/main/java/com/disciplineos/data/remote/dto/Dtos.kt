@@ -26,6 +26,43 @@ data class RefreshTokenRequestDto(
 data class RefreshResponseDto(
     @SerializedName("tokens") val tokens: TokensDto
 )
+
+data class FocusSessionDto(
+    @SerializedName("id") val id: String,
+    @SerializedName("userId") val userId: String,
+    @SerializedName("deviceId") val deviceId: String,
+    @SerializedName("associatedTaskId") val associatedTaskId: String?,
+    @SerializedName("plannedDurationSeconds") val plannedDurationSeconds: Int,
+    @SerializedName("serverStartedAt") val serverStartedAt: String,
+    @SerializedName("serverCompletedAt") val serverCompletedAt: String?,
+    @SerializedName("lastHeartbeatAt") val lastHeartbeatAt: String?,
+    @SerializedName("status") val status: String,
+    @SerializedName("observedDurationSeconds") val observedDurationSeconds: Int,
+    @SerializedName("rewardSeconds") val rewardSeconds: Int,
+    @SerializedName("rewardClaimed") val rewardClaimed: Boolean,
+    @SerializedName("createdAt") val createdAt: String,
+)
+
+data class StartFocusSessionRequestDto(
+    @SerializedName("plannedDurationSeconds") val plannedDurationSeconds: Int,
+    @SerializedName("associatedTaskId") val associatedTaskId: String? = null,
+    @SerializedName("clientStartedMonotonicMs") val clientStartedMonotonicMs: Long? = null,
+    @SerializedName("idempotencyKey") val idempotencyKey: String,
+)
+
+data class FocusHeartbeatRequestDto(
+    @SerializedName("clientMonotonicMs") val clientMonotonicMs: Long? = null,
+    @SerializedName("idempotencyKey") val idempotencyKey: String,
+)
+
+data class CompleteFocusSessionRequestDto(
+    @SerializedName("idempotencyKey") val idempotencyKey: String,
+)
+
+data class FocusSessionResponseDto(
+    @SerializedName("session") val session: FocusSessionDto,
+    @SerializedName("balance") val balance: TimeBankDto? = null,
+)
 data class LoginRequestDto(
     @SerializedName("email") val email: String,
     @SerializedName("password") val password: String
@@ -68,6 +105,31 @@ data class TimeBankDto(
     @SerializedName("availableSeconds") val availableSeconds: Int,
     @SerializedName("lastDecayAt") val lastDecayAt: String,
     @SerializedName("updatedAt") val updatedAt: String
+)
+
+data class TaskDto(
+    @SerializedName("id") val id: String,
+    @SerializedName("userId") val userId: String,
+    @SerializedName("title") val title: String,
+    @SerializedName("description") val description: String?,
+    @SerializedName("rewardSeconds") val rewardSeconds: Int,
+    @SerializedName("evidenceType") val evidenceType: String,
+    @SerializedName("isRecurring") val isRecurring: Boolean,
+)
+
+data class TaskListResponseDto(
+    @SerializedName("tasks") val tasks: List<TaskDto>,
+)
+
+data class TaskResponseDto(
+    @SerializedName("task") val task: TaskDto,
+)
+
+data class CreateTaskRequestDto(
+    @SerializedName("title") val title: String,
+    @SerializedName("description") val description: String? = null,
+    @SerializedName("evidenceType") val evidenceType: String = "none",
+    @SerializedName("isRecurring") val isRecurring: Boolean = false,
 )
 
 data class PolicyProfileDto(
@@ -231,9 +293,55 @@ data class ReconcileReservesResponseDto(
 
 data class CompleteTaskRequestDto(
     @SerializedName("occurrenceDate") val occurrenceDate: String,
-    @SerializedName("evidenceUrl") val evidenceUrl: String? = null,
-    @SerializedName("evidenceSha256") val evidenceSha256: String? = null,
-    @SerializedName("idempotencyKey") val idempotencyKey: String
+    @SerializedName("evidenceSessionId") val evidenceSessionId: String? = null,
+    @SerializedName("photoEvidenceId") val photoEvidenceId: String? = null,
+    @SerializedName("idempotencyKey") val idempotencyKey: String,
+)
+
+data class SubmitPhotoEvidenceRequestDto(
+    @SerializedName("occurrenceDate") val occurrenceDate: String,
+    @SerializedName("sha256") val sha256: String,
+    @SerializedName("sourceUri") val sourceUri: String? = null,
+    @SerializedName("idempotencyKey") val idempotencyKey: String,
+)
+
+data class PhotoEvidenceDto(
+    @SerializedName("id") val id: String,
+    @SerializedName("taskId") val taskId: String,
+    @SerializedName("occurrenceDate") val occurrenceDate: String,
+    @SerializedName("sha256") val sha256: String,
+)
+
+data class PhotoEvidenceResponseDto(
+    @SerializedName("evidence") val evidence: PhotoEvidenceDto,
+)
+
+data class MovementTelemetryDto(
+    @SerializedName("stepDelta") val stepDelta: Int,
+    @SerializedName("activeSeconds") val activeSeconds: Int,
+    @SerializedName("sampleCount") val sampleCount: Int,
+    @SerializedName("monotonicDurationMs") val monotonicDurationMs: Long? = null,
+)
+
+data class ReportLocationEventRequestDto(
+    @SerializedName("locationType") val locationType: String,
+    @SerializedName("placeIdentifier") val placeIdentifier: String,
+    @SerializedName("eventType") val eventType: String,
+    @SerializedName("movement") val movement: MovementTelemetryDto? = null,
+    @SerializedName("clientOccurredAt") val clientOccurredAt: String? = null,
+    @SerializedName("clientMonotonicMs") val clientMonotonicMs: Long? = null,
+    @SerializedName("idempotencyKey") val idempotencyKey: String,
+)
+
+data class LocationEvidenceResponseDto(
+    @SerializedName("event") val event: Map<String, Any>?,
+    @SerializedName("session") val session: Map<String, Any>?,
+    @SerializedName("rewardGranted") val rewardGranted: Boolean,
+    @SerializedName("balance") val balance: TimeBankDto?,
+)
+
+data class AbandonFocusSessionRequestDto(
+    @SerializedName("idempotencyKey") val idempotencyKey: String,
 )
 
 data class CompleteTaskResponseDto(

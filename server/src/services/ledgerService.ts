@@ -4,17 +4,9 @@ import type {
   LedgerTransaction,
   SpendPointsRequest,
   TimeBankBalance,
-  TransactionSource,
 } from '@disciplineos/shared';
 import type { DisciplineStore } from '../db/store.js';
 
-export interface InternalCreditRequest {
-  source: TransactionSource;
-  seconds: number;
-  description?: string;
-  deviceId?: string | null;
-  idempotencyKey?: string;
-}
 
 export class LedgerService {
   constructor(private readonly store: DisciplineStore) {}
@@ -23,13 +15,6 @@ export class LedgerService {
     return this.store.getBalance(userId);
   }
 
-  async internalCreditPoints(
-    userId: string,
-    request: InternalCreditRequest,
-  ): Promise<{ transaction: LedgerTransaction; newBalance: TimeBankBalance }> {
-    const result = await this.store.creditPoints(userId, request);
-    return { transaction: result.transaction, newBalance: result.balance };
-  }
 
   async spendPoints(
     userId: string,

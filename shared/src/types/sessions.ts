@@ -41,12 +41,6 @@ export interface ActiveUnlockSession {
   lease: SignedLease | null;
 }
 
-export const StartFocusSessionSchema = z.object({
-  durationSeconds: z.number().int().min(300).max(14400), // 5m to 4h
-  deviceId: z.string().uuid(),
-  idempotencyKey: z.string().min(8).max(128),
-});
-export type StartFocusSessionRequest = z.infer<typeof StartFocusSessionSchema>;
 
 export const ReleaseSessionSchema = z.object({
   sessionId: z.string().uuid(),

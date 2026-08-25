@@ -1,13 +1,15 @@
 import type {
   DevicePlatform,
-  LeasePayload,
-  TransactionType,
-  TransactionSource,
   EvidenceType,
-  UnlockType,
-  ProtectionDegradedType,
+  FocusSessionStatus,
+  LeasePayload,
   LocationEventType,
   PolicyChangeAction,
+  ProtectionDegradedType,
+  RewardActivityType,
+  TransactionSource,
+  TransactionType,
+  UnlockType,
 } from '@disciplineos/shared';
 export interface UserRow {
   id: string;
@@ -59,7 +61,6 @@ export interface TaskRow {
   isActive: boolean;
   createdAt: string;
 }
-
 export interface TaskOccurrenceRow {
   id: string;
   taskId: string;
@@ -68,6 +69,9 @@ export interface TaskOccurrenceRow {
   completedAt?: string | null;
   evidenceUrl?: string | null;
   evidenceSha256?: string | null;
+  evidenceSessionId?: string | null;
+  photoEvidenceId?: string | null;
+  rewardSeconds?: number;
   rewardClaimed: boolean;
   createdAt: string;
   idempotencyKey: string;
@@ -159,11 +163,113 @@ export interface LocationEventRow {
   id: string;
   userId: string;
   deviceId: string;
+  locationSessionId?: string | null;
   locationType: 'home' | 'gym' | 'custom';
+  placeIdentifier: string;
   eventType: LocationEventType;
+  stepDelta: number;
+  activeSeconds: number;
+  sampleCount: number;
+  clientOccurredAt?: string | null;
+  clientMonotonicMs?: number | null;
+  // Legacy diagnostic fields retained for adapters; never used as reward authority.
   dwellSeconds?: number;
   movementVerified: boolean;
   occurredAt: string;
   idempotencyKey: string;
+  createdAt: string;
+}
+
+export interface RewardPolicyRow {
+  id: string;
+  userId: string;
+  activityType: RewardActivityType;
+  maxRewardSeconds: number;
+  dailyCapSeconds: number;
+  minimumVerifiedSeconds: number;
+  rewardRatioBasisPoints: number;
+  requiresMovement: boolean;
+  updatedAt: string;
+}
+
+export interface PendingRewardPolicyChangeRow {
+  id: string;
+  userId: string;
+  rewardPolicyId: string;
+  activityType: RewardActivityType;
+  proposedPolicy: Pick<
+    RewardPolicyRow,
+    'maxRewardSeconds' | 'dailyCapSeconds' | 'minimumVerifiedSeconds' | 'rewardRatioBasisPoints' | 'requiresMovement'
+  >;
+  requestedAt: string;
+  effectiveAt: string;
+  isCancelled: boolean;
+  isExecuted: boolean;
+}
+
+export interface DailyRewardTotalRow {
+  userId: string;
+  activityType: RewardActivityType;
+  rewardDate: string;
+  awardedSeconds: number;
+  updatedAt: string;
+}
+
+export interface FocusSessionRow {
+  id: string;
+  userId: string;
+  deviceId: string;
+  associatedTaskId?: string | null;
+  plannedDurationSeconds: number;
+  serverStartedAt: string;
+  serverCompletedAt?: string | null;
+  lastHeartbeatAt?: string | null;
+  clientStartedMonotonicMs?: number | null;
+  status: FocusSessionStatus;
+  observedDurationSeconds: number;
+  rewardSeconds: number;
+  rewardClaimed: boolean;
+  startIdempotencyKey: string;
+  completionIdempotencyKey?: string | null;
+  createdAt: string;
+}
+
+export interface PhotoEvidenceRow {
+  id: string;
+  userId: string;
+  deviceId: string;
+  taskId: string;
+  occurrenceDate: string;
+  sha256: string;
+  sourceUri?: string | null;
+  idempotencyKey: string;
+  createdAt: string;
+}
+
+export interface TaskEvidenceConsumptionRow {
+  id: string;
+  taskOccurrenceId: string;
+  focusSessionId?: string | null;
+  photoEvidenceId?: string | null;
+  consumedAt: string;
+}
+
+export interface LocationSessionRow {
+  id: string;
+  userId: string;
+  deviceId: string;
+  locationType: 'home' | 'gym' | 'custom';
+  placeIdentifier: string;
+  status: 'active' | 'completed' | 'abandoned' | 'expired';
+  serverStartedAt: string;
+  serverLastSeenAt: string;
+  serverEndedAt?: string | null;
+  clientEnteredAt?: string | null;
+  clientExitedAt?: string | null;
+  stepDelta: number;
+  activeSeconds: number;
+  sampleCount: number;
+  rewardSeconds: number;
+  rewardClaimed: boolean;
   createdAt: string;
 }

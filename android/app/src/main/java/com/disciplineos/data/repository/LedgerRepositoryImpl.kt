@@ -43,10 +43,11 @@ class LedgerRepositoryImpl(
     override suspend fun claimTaskReward(
         taskId: String,
         occurrenceDate: String,
-        evidenceUrl: String?
+        evidenceSessionId: String?,
+        photoEvidenceId: String?,
     ): Result<TimeBank> {
         val token = tokenProvider() ?: return Result.failure(IllegalStateException("Not authenticated"))
-        val idempotencyKey = "task-claim-${UUID.randomUUID()}"
+        val idempotencyKey = "task-claim-$taskId-$occurrenceDate-${evidenceSessionId ?: photoEvidenceId ?: "manual"}"
 
         return try {
             val response = apiService.completeTask(
@@ -54,9 +55,10 @@ class LedgerRepositoryImpl(
                 taskId = taskId,
                 request = CompleteTaskRequestDto(
                     occurrenceDate = occurrenceDate,
-                    evidenceUrl = evidenceUrl,
-                    idempotencyKey = idempotencyKey
-                )
+                    evidenceSessionId = evidenceSessionId,
+                    photoEvidenceId = photoEvidenceId,
+                    idempotencyKey = idempotencyKey,
+                ),
             )
 
             if (response.isSuccessful && response.body()?.balance != null) {
@@ -65,7 +67,7 @@ class LedgerRepositoryImpl(
                     balanceSeconds = dto.balanceSeconds,
                     availableSeconds = dto.availableSeconds,
                     reservedSeconds = dto.reservedSeconds,
-                    maxSeconds = dto.maxSeconds
+                    maxSeconds = dto.maxSeconds,
                 )
                 _timeBankFlow.value = bank
                 Result.success(bank)

@@ -5,3 +5,5 @@ export * from './types/tasks.js';
 export * from './types/sessions.js';
 export * from './types/reserves.js';
 export * from './types/events.js';
+export * from './types/focus.js';
+export * from './types/rewards.js';

@@ -4,8 +4,10 @@ import type {
   PolicyProfile,
   ReconcileReservesRequest,
   ReconcileReservesResponse,
+  RewardActivityType,
   TimeBankBalance,
   TransactionSource,
+  UpdateRewardPolicyRequest,
 } from '@disciplineos/shared';
 import type {
   ActiveUnlockRow,
@@ -13,9 +15,14 @@ import type {
   BlockedSiteRow,
   DeviceReserveRow,
   DeviceRow,
+  FocusSessionRow,
   LocationEventRow,
+  LocationSessionRow,
   PendingPolicyChangeRow,
+  PendingRewardPolicyChangeRow,
+  PhotoEvidenceRow,
   ProtectionEventRow,
+  RewardPolicyRow,
   TaskOccurrenceRow,
   TaskRow,
   TimeBankRow,
@@ -61,18 +68,78 @@ export interface UnlockSessionInput {
   ledgerDescription?: string;
 }
 
-export interface LocationRewardRule {
-  source: 'gym' | 'outside';
-  rewardSeconds: number;
-  minimumDurationSeconds: number;
-  requiresMovement: boolean;
-  descriptionPrefix: string;
+export interface FocusSessionStartInput {
+  id: string;
+  userId: string;
+  deviceId: string;
+  associatedTaskId?: string | null;
+  plannedDurationSeconds: number;
+  clientStartedMonotonicMs?: number | null;
+  idempotencyKey: string;
 }
 
-export interface LocationEventResult {
+export interface FocusHeartbeatInput {
+  userId: string;
+  deviceId: string;
+  sessionId: string;
+}
+
+export interface FocusCompletionInput {
+  userId: string;
+  deviceId: string;
+  sessionId: string;
+  idempotencyKey: string;
+}
+
+export interface FocusCompletionResult {
+  session: FocusSessionRow;
+  balance?: TimeBankBalance;
+}
+
+export interface PhotoEvidenceSubmissionInput {
   id: string;
+  userId: string;
+  deviceId: string;
+  taskId: string;
+  occurrenceDate: string;
+  sha256: string;
+  sourceUri?: string | null;
+  idempotencyKey: string;
+}
+
+export interface FocusAbandonInput {
+  userId: string;
+  deviceId: string;
+  sessionId: string;
+  idempotencyKey: string;
+}
+
+export interface CompleteTaskEvidenceInput {
+  id: string;
+  userId: string;
+  deviceId?: string | null;
+  taskId: string;
+  occurrenceDate: string;
+  focusSessionId?: string | null;
+  photoEvidenceId?: string | null;
+  idempotencyKey: string;
+}
+
+export interface TaskCompletionResult {
+  occurrence: TaskOccurrenceRow;
+  balance: TimeBankBalance;
+}
+
+export interface LocationEvidenceResult {
+  event: LocationEventRow;
+  session?: LocationSessionRow | null;
   rewardGranted: boolean;
   balance?: TimeBankBalance;
+}
+
+export interface RewardPolicyUpdateResult {
+  policy: RewardPolicyRow;
+  pendingChange?: PendingRewardPolicyChangeRow | null;
 }
 
 export interface DisciplineStore {
@@ -83,10 +150,6 @@ export interface DisciplineStore {
   getDevices(userId: string): Promise<DeviceRow[]>;
 
   getBalance(userId: string): Promise<TimeBankBalance>;
-  creditPoints(
-    userId: string,
-    input: CreditPointsInput,
-  ): Promise<{ transaction: TransactionRow; balance: TimeBankBalance }>;
   spendPoints(
     userId: string,
     input: SpendPointsInput,
@@ -98,16 +161,19 @@ export interface DisciplineStore {
   getActiveUnlock(userId: string): Promise<ActiveUnlockRow | null>;
   releaseUnlock(userId: string, sessionId: string, deviceId: string): Promise<boolean>;
 
+  startFocusSession(input: FocusSessionStartInput): Promise<FocusSessionRow>;
+  heartbeatFocusSession(input: FocusHeartbeatInput): Promise<FocusSessionRow>;
+  completeFocusSession(input: FocusCompletionInput): Promise<FocusCompletionResult>;
+  abandonFocusSession(input: FocusAbandonInput): Promise<FocusSessionRow>;
+  getFocusSession(userId: string, sessionId: string): Promise<FocusSessionRow | null>;
+
   getTasks(userId: string): Promise<TaskRow[]>;
   getTask(userId: string, taskId: string): Promise<TaskRow | null>;
   createTask(task: TaskRow): Promise<void>;
-  completeTaskOccurrence(
-    userId: string,
-    taskId: string,
-    occurrence: TaskOccurrenceRow,
-    credit: CreditPointsInput,
-  ): Promise<{ occurrence: TaskOccurrenceRow; balance: TimeBankBalance }>;
 
+
+  submitPhotoEvidence(input: PhotoEvidenceSubmissionInput): Promise<PhotoEvidenceRow>;
+  completeTaskWithEvidence(input: CompleteTaskEvidenceInput): Promise<TaskCompletionResult>;
   getPolicy(userId: string): Promise<PolicyProfile>;
   addBlockedApp(app: BlockedAppRow): Promise<BlockedAppRow>;
   addBlockedSite(site: BlockedSiteRow): Promise<BlockedSiteRow>;
@@ -121,14 +187,21 @@ export interface DisciplineStore {
   getPendingPolicyChanges(userId: string): Promise<PendingPolicyChangeRow[]>;
   cancelPendingPolicyChange(userId: string, changeId: string): Promise<boolean>;
 
+  getRewardPolicies(userId: string): Promise<RewardPolicyRow[]>;
+  getRewardPolicy(userId: string, activityType: RewardActivityType): Promise<RewardPolicyRow>;
+  updateRewardPolicy(
+    userId: string,
+    activityType: RewardActivityType,
+    request: UpdateRewardPolicyRequest,
+  ): Promise<RewardPolicyUpdateResult>;
+  getPendingRewardPolicyChanges(userId: string): Promise<PendingRewardPolicyChangeRow[]>;
+  cancelPendingRewardPolicyChange(userId: string, changeId: string): Promise<boolean>;
+
   allocateReserve(reserve: DeviceReserveRow): Promise<DeviceReserveRow>;
   reconcileReserve(userId: string, input: ReconcileReservesRequest): Promise<ReconcileReservesResponse>;
   getActiveReserves(userId: string): Promise<DeviceReserveRow[]>;
 
   recordProtectionEvent(event: ProtectionEventRow): Promise<void>;
   getProtectionEvents(userId: string, limit: number): Promise<ProtectionEventRow[]>;
-  recordLocationEvent(
-    event: LocationEventRow,
-    reward: LocationRewardRule | undefined,
-  ): Promise<LocationEventResult>;
+  recordLocationEvidence(event: LocationEventRow): Promise<LocationEvidenceResult>;
 }
