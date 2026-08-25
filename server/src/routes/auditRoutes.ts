@@ -1,48 +1,44 @@
 import { Hono } from 'hono';
 import { ReportProtectionEventSchema, ReportLocationEventSchema } from '@disciplineos/shared';
-import { auditService } from '../services/auditService.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { createAuthMiddleware } from '../middleware/auth.js';
 import type { AppEnv } from '../types.js';
+import type { Services } from '../services/index.js';
 
-export const auditRoutes = new Hono<AppEnv>();
-auditRoutes.use('*', authMiddleware);
+export function createAuditRoutes(services: Services) {
+  const routes = new Hono<AppEnv>();
+  const authMiddleware = createAuthMiddleware(services.auth);
+  routes.use('*', authMiddleware);
 
-auditRoutes.post('/protection', async (c) => {
-  try {
-    const userId = c.get('userId');
-    const tokenDeviceId = c.get('deviceId');
-    const body = await c.req.json();
-    const validated = ReportProtectionEventSchema.parse(body);
+  routes.post('/protection', async (c) => {
+    try {
+      const validated = ReportProtectionEventSchema.parse(await c.req.json());
+      const deviceId = c.get('deviceId') || validated.deviceId;
+      return c.json(await services.audit.recordProtectionEvent(c.get('userId'), { ...validated, deviceId }), 201);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not record protection event';
+      return c.json({ error: message }, 400);
+    }
+  });
 
-    const deviceId = tokenDeviceId || validated.deviceId;
-    const result = await auditService.recordProtectionEvent(userId, { ...validated, deviceId });
-    return c.json(result, 201);
-  } catch (err: any) {
-    return c.json({ error: err.message }, 400);
-  }
-});
+  routes.get('/protection', async (c) => {
+    try {
+      return c.json({ events: await services.audit.getProtectionEvents(c.get('userId')) }, 200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not read protection events';
+      return c.json({ error: message }, 400);
+    }
+  });
 
-auditRoutes.get('/protection', async (c) => {
-  try {
-    const userId = c.get('userId');
-    const events = await auditService.getProtectionEvents(userId);
-    return c.json({ events }, 200);
-  } catch (err: any) {
-    return c.json({ error: err.message }, 400);
-  }
-});
+  routes.post('/location', async (c) => {
+    try {
+      const validated = ReportLocationEventSchema.parse(await c.req.json());
+      const deviceId = c.get('deviceId') || validated.deviceId;
+      return c.json(await services.audit.recordLocationEvent(c.get('userId'), { ...validated, deviceId }), 201);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not record location event';
+      return c.json({ error: message }, 400);
+    }
+  });
 
-auditRoutes.post('/location', async (c) => {
-  try {
-    const userId = c.get('userId');
-    const tokenDeviceId = c.get('deviceId');
-    const body = await c.req.json();
-    const validated = ReportLocationEventSchema.parse(body);
-
-    const deviceId = tokenDeviceId || validated.deviceId;
-    const result = await auditService.recordLocationEvent(userId, { ...validated, deviceId });
-    return c.json(result, 201);
-  } catch (err: any) {
-    return c.json({ error: err.message }, 400);
-  }
-});
+  return routes;
+}

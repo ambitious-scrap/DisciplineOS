@@ -1,42 +1,38 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { logger } from 'hono/logger';
-import { authRoutes } from './routes/authRoutes.js';
-import { ledgerRoutes } from './routes/ledgerRoutes.js';
-import { sessionRoutes } from './routes/sessionRoutes.js';
-import { policyRoutes } from './routes/policyRoutes.js';
-import { taskRoutes } from './routes/taskRoutes.js';
-import { reserveRoutes } from './routes/reserveRoutes.js';
-import { auditRoutes } from './routes/auditRoutes.js';
+import { db } from './db/memoryStore.js';
+import type { DisciplineStore } from './db/store.js';
+import { createServices } from './services/index.js';
+import { createAuthRoutes } from './routes/authRoutes.js';
+import { createLedgerRoutes } from './routes/ledgerRoutes.js';
+import { createSessionRoutes } from './routes/sessionRoutes.js';
+import { createPolicyRoutes } from './routes/policyRoutes.js';
+import { createTaskRoutes } from './routes/taskRoutes.js';
+import { createReserveRoutes } from './routes/reserveRoutes.js';
+import { createAuditRoutes } from './routes/auditRoutes.js';
 import type { AppEnv } from './types.js';
 
-export function createApp() {
+export type DisciplineApp = Hono<AppEnv>;
+
+export function createApp(store: DisciplineStore = db): DisciplineApp {
+  const services = createServices(store);
   const app = new Hono<AppEnv>();
 
-  // Global Middleware
   app.use('*', cors());
   app.use('*', logger());
 
-  // Health check
-  app.get('/health', (c) => {
-    return c.json({ status: 'ok', time: new Date().toISOString() });
-  });
+  app.get('/health', (c) => c.json({ status: 'ok', time: new Date().toISOString() }));
+  app.route('/api/auth', createAuthRoutes(services));
+  app.route('/api/bank', createLedgerRoutes(services));
+  app.route('/api/sessions', createSessionRoutes(services));
+  app.route('/api/policy', createPolicyRoutes(services));
+  app.route('/api/tasks', createTaskRoutes(services));
+  app.route('/api/reserves', createReserveRoutes(services));
+  app.route('/api/events', createAuditRoutes(services));
 
-  // Mount API modules
-  app.route('/api/auth', authRoutes);
-  app.route('/api/bank', ledgerRoutes);
-  app.route('/api/sessions', sessionRoutes);
-  app.route('/api/policy', policyRoutes);
-  app.route('/api/tasks', taskRoutes);
-  app.route('/api/reserves', reserveRoutes);
-  app.route('/api/events', auditRoutes);
-
-  // Global 404
-  app.notFound((c) => {
-    return c.json({ error: 'Endpoint not found' }, 404);
-  });
-
+  app.notFound((c) => c.json({ error: 'Endpoint not found' }, 404));
   return app;
 }
 
-export const app = createApp();
+export const app = createApp(db);

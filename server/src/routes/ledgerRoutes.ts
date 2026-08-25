@@ -1,71 +1,56 @@
 import { Hono } from 'hono';
 import { SpendPointsSchema, EmergencyUnlockSchema } from '@disciplineos/shared';
-import { ledgerService } from '../services/ledgerService.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { createAuthMiddleware } from '../middleware/auth.js';
 import type { AppEnv } from '../types.js';
+import type { Services } from '../services/index.js';
 
-export const ledgerRoutes = new Hono<AppEnv>();
-ledgerRoutes.use('*', authMiddleware);
+export function createLedgerRoutes(services: Services) {
+  const routes = new Hono<AppEnv>();
+  const authMiddleware = createAuthMiddleware(services.auth);
+  routes.use('*', authMiddleware);
 
-ledgerRoutes.get('/balance', async (c) => {
-  try {
-    const userId = c.get('userId');
-    const balance = await ledgerService.getBalance(userId);
-    return c.json(balance, 200);
-  } catch (err: any) {
-    return c.json({ error: err.message }, 400);
-  }
-});
-
-ledgerRoutes.get('/transactions', async (c) => {
-  try {
-    const userId = c.get('userId');
-    const limit = Number(c.req.query('limit')) || 50;
-    const transactions = await ledgerService.getTransactions(userId, limit);
-    return c.json({ transactions }, 200);
-  } catch (err: any) {
-    return c.json({ error: err.message }, 400);
-  }
-});
-
-// NOTE: POST /earn is strictly removed. Clients cannot manufacture points directly.
-
-ledgerRoutes.post('/spend', async (c) => {
-  try {
-    const userId = c.get('userId');
-    const tokenDeviceId = c.get('deviceId');
-    const body = await c.req.json();
-    const validated = SpendPointsSchema.parse(body);
-
-    // Enforce token-bound deviceId if present
-    const deviceId = tokenDeviceId || validated.deviceId;
-    if (!deviceId) {
-      return c.json({ error: 'Device ID required via device token or body' }, 400);
+  routes.get('/balance', async (c) => {
+    try {
+      return c.json(await services.ledger.getBalance(c.get('userId')), 200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not read balance';
+      return c.json({ error: message }, 400);
     }
+  });
 
-    const result = await ledgerService.spendPoints(userId, { ...validated, deviceId });
-    return c.json(result, 200);
-  } catch (err: any) {
-    return c.json({ error: err.message }, 400);
-  }
-});
-
-ledgerRoutes.post('/emergency', async (c) => {
-  try {
-    const userId = c.get('userId');
-    const tokenDeviceId = c.get('deviceId');
-    const body = await c.req.json();
-    const validated = EmergencyUnlockSchema.parse(body);
-
-    // Enforce token-bound deviceId if present
-    const deviceId = tokenDeviceId || validated.deviceId;
-    if (!deviceId) {
-      return c.json({ error: 'Device ID required via device token or body' }, 400);
+  routes.get('/transactions', async (c) => {
+    try {
+      const limit = Number(c.req.query('limit')) || 50;
+      return c.json({ transactions: await services.ledger.getTransactions(c.get('userId'), limit) }, 200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not read transactions';
+      return c.json({ error: message }, 400);
     }
+  });
 
-    const result = await ledgerService.emergencyUnlock(userId, { ...validated, deviceId });
-    return c.json(result, 200);
-  } catch (err: any) {
-    return c.json({ error: err.message }, 400);
-  }
-});
+  routes.post('/spend', async (c) => {
+    try {
+      const validated = SpendPointsSchema.parse(await c.req.json());
+      const deviceId = c.get('deviceId') || validated.deviceId;
+      if (!deviceId) return c.json({ error: 'Device ID required via device token or body' }, 400);
+      return c.json(await services.ledger.spendPoints(c.get('userId'), { ...validated, deviceId }), 200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Spend rejected';
+      return c.json({ error: message }, 400);
+    }
+  });
+
+  routes.post('/emergency', async (c) => {
+    try {
+      const validated = EmergencyUnlockSchema.parse(await c.req.json());
+      const deviceId = c.get('deviceId') || validated.deviceId;
+      if (!deviceId) return c.json({ error: 'Device ID required via device token or body' }, 400);
+      return c.json(await services.ledger.emergencyUnlock(c.get('userId'), { ...validated, deviceId }), 200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Emergency unlock rejected';
+      return c.json({ error: message }, 400);
+    }
+  });
+
+  return routes;
+}

@@ -118,6 +118,7 @@ describe('Immutable Ledger & Time Bank API', () => {
         targetType: 'site',
         targetIdentifier: 'youtube.com',
         deviceId,
+        multiplier: 1,
         idempotencyKey: 'emergency-1',
       }),
     });

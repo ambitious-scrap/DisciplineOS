@@ -1,48 +1,46 @@
 import { Hono } from 'hono';
 import { AllocateReserveSchema, ReconcileReservesSchema } from '@disciplineos/shared';
-import { reserveService } from '../services/reserveService.js';
-import { authMiddleware } from '../middleware/auth.js';
+import { createAuthMiddleware } from '../middleware/auth.js';
 import type { AppEnv } from '../types.js';
+import type { Services } from '../services/index.js';
 
-export const reserveRoutes = new Hono<AppEnv>();
-reserveRoutes.use('*', authMiddleware);
+export function createReserveRoutes(services: Services) {
+  const routes = new Hono<AppEnv>();
+  const authMiddleware = createAuthMiddleware(services.auth);
+  routes.use('*', authMiddleware);
 
-reserveRoutes.get('/', async (c) => {
-  try {
-    const userId = c.get('userId');
-    const reserves = await reserveService.getActiveReserves(userId);
-    return c.json({ reserves }, 200);
-  } catch (err: any) {
-    return c.json({ error: err.message }, 400);
-  }
-});
+  routes.get('/', async (c) => {
+    try {
+      return c.json({ reserves: await services.reserves.getActiveReserves(c.get('userId')) }, 200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not list reserves';
+      return c.json({ error: message }, 400);
+    }
+  });
 
-reserveRoutes.post('/allocate', async (c) => {
-  try {
-    const userId = c.get('userId');
-    const tokenDeviceId = c.get('deviceId');
-    const body = await c.req.json();
-    const validated = AllocateReserveSchema.parse(body);
+  routes.post('/allocate', async (c) => {
+    try {
+      const validated = AllocateReserveSchema.parse(await c.req.json());
+      const deviceId = c.get('deviceId') || validated.deviceId;
+      const reserve = await services.reserves.allocateReserve(c.get('userId'), { ...validated, deviceId });
+      return c.json({ reserve }, 201);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Reserve allocation rejected';
+      return c.json({ error: message }, 400);
+    }
+  });
 
-    const deviceId = tokenDeviceId || validated.deviceId;
-    const reserve = await reserveService.allocateReserve(userId, { ...validated, deviceId });
-    return c.json({ reserve }, 201);
-  } catch (err: any) {
-    return c.json({ error: err.message }, 400);
-  }
-});
+  routes.post('/reconcile', async (c) => {
+    try {
+      const validated = ReconcileReservesSchema.parse(await c.req.json());
+      const deviceId = c.get('deviceId') || validated.deviceId;
+      const result = await services.reserves.reconcileReserve(c.get('userId'), { ...validated, deviceId });
+      return c.json(result, 200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Reserve reconciliation rejected';
+      return c.json({ error: message }, 400);
+    }
+  });
 
-reserveRoutes.post('/reconcile', async (c) => {
-  try {
-    const userId = c.get('userId');
-    const tokenDeviceId = c.get('deviceId');
-    const body = await c.req.json();
-    const validated = ReconcileReservesSchema.parse(body);
-
-    const deviceId = tokenDeviceId || validated.deviceId;
-    const result = await reserveService.reconcileReserve(userId, { ...validated, deviceId });
-    return c.json(result, 200);
-  } catch (err: any) {
-    return c.json({ error: err.message }, 400);
-  }
-});
+  return routes;
+}

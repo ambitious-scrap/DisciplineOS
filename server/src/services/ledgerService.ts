@@ -1,13 +1,12 @@
-import { randomUUID } from 'node:crypto';
-import { db } from '../db/memoryStore.js';
 import { config } from '../config.js';
 import type {
-  TimeBankBalance,
+  EmergencyUnlockRequest,
   LedgerTransaction,
   SpendPointsRequest,
-  EmergencyUnlockRequest,
+  TimeBankBalance,
   TransactionSource,
 } from '@disciplineos/shared';
+import type { DisciplineStore } from '../db/store.js';
 
 export interface InternalCreditRequest {
   source: TransactionSource;
@@ -18,178 +17,54 @@ export interface InternalCreditRequest {
 }
 
 export class LedgerService {
-  /**
-   * Get the current time-bank balance for a user, accounting for reserved points.
-   */
+  constructor(private readonly store: DisciplineStore) {}
+
   async getBalance(userId: string): Promise<TimeBankBalance> {
-    const bank = db.timeBanks.get(userId);
-    if (!bank) {
-      throw new Error('Time bank not found for user');
-    }
-
-    const now = new Date().toISOString();
-    let reservedSeconds = 0;
-
-    // Sum unexpired active device reserves
-    for (const reserve of db.deviceReserves.values()) {
-      if (reserve.userId === userId && reserve.remainingSeconds > 0 && reserve.expiresAt > now) {
-        reservedSeconds += reserve.remainingSeconds;
-      }
-    }
-
-    const availableSeconds = Math.max(0, bank.balanceSeconds - reservedSeconds);
-
-    return {
-      userId,
-      balanceSeconds: bank.balanceSeconds,
-      maxSeconds: bank.maxSeconds,
-      reservedSeconds,
-      availableSeconds,
-      lastDecayAt: bank.lastDecayAt,
-      updatedAt: bank.updatedAt,
-    };
+    return this.store.getBalance(userId);
   }
 
-  /**
-   * Internal ONLY method: credit points to user's ledger via verified domain services (Tasks, Location, Focus).
-   * Not exposed to public HTTP clients.
-   */
-  async internalCreditPoints(userId: string, req: InternalCreditRequest): Promise<{ transaction: LedgerTransaction; newBalance: TimeBankBalance }> {
-    if (req.idempotencyKey) {
-      const existing = db.transactions.find(
-        (t) => t.userId === userId && t.idempotencyKey === req.idempotencyKey
-      );
-      if (existing) {
-        const balance = await this.getBalance(userId);
-        return { transaction: existing, newBalance: balance };
-      }
-    }
-
-    const bank = db.timeBanks.get(userId);
-    if (!bank) {
-      throw new Error('Time bank not found for user');
-    }
-
-    const now = new Date().toISOString();
-    const targetBalance = bank.balanceSeconds + req.seconds;
-    const actualCredit = Math.min(req.seconds, Math.max(0, bank.maxSeconds - bank.balanceSeconds));
-
-    bank.balanceSeconds = Math.min(bank.maxSeconds, targetBalance);
-    bank.updatedAt = now;
-
-    const tx: LedgerTransaction = {
-      id: randomUUID(),
-      userId,
-      type: 'earn',
-      source: req.source,
-      seconds: actualCredit,
-      description: req.description ?? `Earned via ${req.source}`,
-      deviceId: req.deviceId ?? null,
-      idempotencyKey: req.idempotencyKey,
-      createdAt: now,
-    };
-
-    db.transactions.push(tx);
-
-    const balance = await this.getBalance(userId);
-    return { transaction: tx, newBalance: balance };
+  async internalCreditPoints(
+    userId: string,
+    request: InternalCreditRequest,
+  ): Promise<{ transaction: LedgerTransaction; newBalance: TimeBankBalance }> {
+    const result = await this.store.creditPoints(userId, request);
+    return { transaction: result.transaction, newBalance: result.balance };
   }
 
-  /**
-   * Atomically spend points from the available balance.
-   */
-  async spendPoints(userId: string, req: SpendPointsRequest): Promise<{ transaction: LedgerTransaction; newBalance: TimeBankBalance }> {
-    if (req.idempotencyKey) {
-      const existing = db.transactions.find(
-        (t) => t.userId === userId && t.idempotencyKey === req.idempotencyKey
-      );
-      if (existing) {
-        const balance = await this.getBalance(userId);
-        return { transaction: existing, newBalance: balance };
-      }
-    }
-
-    const balance = await this.getBalance(userId);
-    if (balance.availableSeconds < req.seconds) {
-      throw new Error(`Insufficient available balance. Requested: ${req.seconds}s, Available: ${balance.availableSeconds}s`);
-    }
-
-    const bank = db.timeBanks.get(userId)!;
-    const now = new Date().toISOString();
-
-    bank.balanceSeconds -= req.seconds;
-    bank.updatedAt = now;
-
-    const tx: LedgerTransaction = {
-      id: randomUUID(),
-      userId,
-      type: 'spend',
+  async spendPoints(
+    userId: string,
+    request: SpendPointsRequest & { deviceId: string },
+  ): Promise<{ transaction: LedgerTransaction; newBalance: TimeBankBalance }> {
+    const result = await this.store.spendPoints(userId, {
+      seconds: request.seconds,
+      targetType: request.targetType,
+      targetIdentifier: request.targetIdentifier,
+      deviceId: request.deviceId,
+      idempotencyKey: request.idempotencyKey,
       source: 'usage',
-      seconds: req.seconds,
-      description: `Unlock ${req.targetType}:${req.targetIdentifier}`,
-      deviceId: req.deviceId,
-      idempotencyKey: req.idempotencyKey,
-      createdAt: now,
-    };
-
-    db.transactions.push(tx);
-
-    const updatedBalance = await this.getBalance(userId);
-    return { transaction: tx, newBalance: updatedBalance };
+    });
+    return { transaction: result.transaction, newBalance: result.balance };
   }
 
-  /**
-   * Emergency unlock: Server strictly applies the non-negotiable 3.0x multiplier.
-   */
-  async emergencyUnlock(userId: string, req: EmergencyUnlockRequest): Promise<{ transaction: LedgerTransaction; newBalance: TimeBankBalance }> {
-    if (req.idempotencyKey) {
-      const existing = db.transactions.find(
-        (t) => t.userId === userId && t.idempotencyKey === req.idempotencyKey
-      );
-      if (existing) {
-        const balance = await this.getBalance(userId);
-        return { transaction: existing, newBalance: balance };
-      }
-    }
-
-    const multiplier = config.defaultEmergencyMultiplier; // strictly 3.0
-    const totalCost = Math.round(req.seconds * multiplier);
-
-    const balance = await this.getBalance(userId);
-    if (balance.availableSeconds < totalCost) {
-      throw new Error(`Insufficient balance for emergency unlock. Required: ${totalCost}s (3.0x penalty for ${req.seconds}s access), Available: ${balance.availableSeconds}s`);
-    }
-
-    const bank = db.timeBanks.get(userId)!;
-    const now = new Date().toISOString();
-
-    bank.balanceSeconds -= totalCost;
-    bank.updatedAt = now;
-
-    const tx: LedgerTransaction = {
-      id: randomUUID(),
-      userId,
-      type: 'spend',
-      source: 'emergency',
+  async emergencyUnlock(
+    userId: string,
+    request: EmergencyUnlockRequest & { deviceId: string },
+  ): Promise<{ transaction: LedgerTransaction; newBalance: TimeBankBalance }> {
+    const multiplier = config.defaultEmergencyMultiplier;
+    const totalCost = Math.round(request.seconds * multiplier);
+    const result = await this.store.spendPoints(userId, {
       seconds: totalCost,
-      description: `Emergency unlock ${req.targetType}:${req.targetIdentifier} (${req.seconds}s with ${multiplier}x penalty)`,
-      deviceId: req.deviceId,
-      idempotencyKey: req.idempotencyKey,
-      createdAt: now,
-    };
-
-    db.transactions.push(tx);
-
-    const updatedBalance = await this.getBalance(userId);
-    return { transaction: tx, newBalance: updatedBalance };
+      targetType: request.targetType,
+      targetIdentifier: request.targetIdentifier,
+      deviceId: request.deviceId,
+      idempotencyKey: request.idempotencyKey,
+      source: 'emergency',
+      description: `Emergency unlock ${request.targetType}:${request.targetIdentifier} (${request.seconds}s with ${multiplier}x penalty)`,
+    });
+    return { transaction: result.transaction, newBalance: result.balance };
   }
 
   async getTransactions(userId: string, limit = 50): Promise<LedgerTransaction[]> {
-    return db.transactions
-      .filter((t) => t.userId === userId)
-      .slice(-limit)
-      .reverse();
+    return this.store.getTransactions(userId, limit);
   }
 }
-
-export const ledgerService = new LedgerService();

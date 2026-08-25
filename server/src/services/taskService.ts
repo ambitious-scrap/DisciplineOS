@@ -1,101 +1,101 @@
 import { randomUUID } from 'node:crypto';
-import { db } from '../db/memoryStore.js';
-import { ledgerService } from './ledgerService.js';
 import type {
+  CompleteTaskRequest,
+  CreateTaskRequest,
   Task,
   TaskOccurrence,
-  CreateTaskRequest,
-  CompleteTaskRequest,
   TimeBankBalance,
 } from '@disciplineos/shared';
+import type { TaskOccurrenceRow, TaskRow } from '../db/interfaces.js';
+import type { DisciplineStore } from '../db/store.js';
 
 export class TaskService {
-  async getTasks(userId: string): Promise<Task[]> {
-    const tasks: Task[] = [];
-    for (const task of db.tasks.values()) {
-      if (task.userId === userId && task.isActive) {
-        tasks.push({ ...task });
-      }
-    }
-    return tasks;
+  constructor(private readonly store: DisciplineStore) {}
+
+  private toTask(task: TaskRow): Task {
+    return {
+      id: task.id,
+      userId: task.userId,
+      title: task.title,
+      description: task.description,
+      rewardSeconds: task.rewardSeconds,
+      evidenceType: task.evidenceType,
+      isRecurring: task.isRecurring,
+      recurrenceCron: task.recurrenceCron,
+      isActive: task.isActive,
+      createdAt: task.createdAt,
+    };
   }
 
-  async createTask(userId: string, req: CreateTaskRequest): Promise<Task> {
-    // Reward is capped between 60s and 3600s
-    const rewardSeconds = Math.min(3600, Math.max(60, req.rewardSeconds));
-
-    const id = randomUUID();
-    const now = new Date().toISOString();
-
-    const task: Task = {
-      id,
-      userId,
-      title: req.title,
-      description: req.description ?? null,
-      rewardSeconds,
-      evidenceType: req.evidenceType,
-      isRecurring: req.isRecurring,
-      recurrenceCron: req.recurrenceCron ?? null,
-      isActive: true,
-      createdAt: now,
+  private toOccurrence(occurrence: TaskOccurrenceRow): TaskOccurrence {
+    return {
+      id: occurrence.id,
+      taskId: occurrence.taskId,
+      userId: occurrence.userId,
+      occurrenceDate: occurrence.occurrenceDate,
+      completedAt: occurrence.completedAt,
+      evidenceUrl: occurrence.evidenceUrl,
+      evidenceSha256: occurrence.evidenceSha256,
+      rewardClaimed: occurrence.rewardClaimed,
+      createdAt: occurrence.createdAt,
     };
+  }
 
-    db.tasks.set(id, task);
-    return task;
+  async getTasks(userId: string): Promise<Task[]> {
+    const tasks = await this.store.getTasks(userId);
+    return tasks.map((task) => this.toTask(task));
+  }
+
+  async createTask(userId: string, request: CreateTaskRequest): Promise<Task> {
+    const task: TaskRow = {
+      id: randomUUID(),
+      userId,
+      title: request.title,
+      description: request.description ?? null,
+      rewardSeconds: Math.min(3600, Math.max(60, request.rewardSeconds)),
+      evidenceType: request.evidenceType,
+      isRecurring: request.isRecurring,
+      recurrenceCron: request.recurrenceCron ?? null,
+      isActive: true,
+      createdAt: new Date().toISOString(),
+    };
+    await this.store.createTask(task);
+    return this.toTask(task);
   }
 
   async completeTaskOccurrence(
     userId: string,
     taskId: string,
-    req: CompleteTaskRequest
+    request: CompleteTaskRequest,
   ): Promise<{ occurrence: TaskOccurrence; balance: TimeBankBalance }> {
-    const task = db.tasks.get(taskId);
-    if (!task || task.userId !== userId) {
-      throw new Error('Task not found');
+    const task = await this.store.getTask(userId, taskId);
+    if (!task) throw new Error('Task not found');
+    if (task.evidenceType === 'photo' && !request.evidenceUrl && !request.evidenceSha256) {
+      throw new Error('Photo proof (evidenceUrl or evidenceSha256) is strictly required to complete this task');
     }
-
-    // Evidence Verification Gate
-    if (task.evidenceType === 'photo') {
-      if (!req.evidenceUrl && !req.evidenceSha256) {
-        throw new Error('Photo proof (evidenceUrl or evidenceSha256) is strictly required to complete this task');
-      }
-    } else if (task.evidenceType === 'focus_timer') {
-      if (!req.evidenceMeta || !req.evidenceMeta.sessionDurationSeconds) {
-        throw new Error('Focus session telemetry is strictly required to complete this task');
-      }
-    }
-
-    for (const occ of db.taskOccurrences.values()) {
-      if (occ.taskId === taskId && occ.occurrenceDate === req.occurrenceDate && occ.rewardClaimed) {
-        throw new Error('Reward has already been claimed for this task occurrence date');
-      }
+    if (task.evidenceType === 'focus_timer' && !request.evidenceMeta?.sessionDurationSeconds) {
+      throw new Error('Focus session telemetry is strictly required to complete this task');
     }
 
     const now = new Date().toISOString();
-    const occurrenceId = randomUUID();
-    const occurrence: TaskOccurrence = {
-      id: occurrenceId,
+    const occurrence: TaskOccurrenceRow = {
+      id: randomUUID(),
       taskId,
       userId,
-      occurrenceDate: req.occurrenceDate,
+      occurrenceDate: request.occurrenceDate,
       completedAt: now,
-      evidenceUrl: req.evidenceUrl ?? null,
-      evidenceSha256: req.evidenceSha256 ?? null,
+      evidenceUrl: request.evidenceUrl ?? null,
+      evidenceSha256: request.evidenceSha256 ?? null,
       rewardClaimed: true,
       createdAt: now,
+      idempotencyKey: request.idempotencyKey,
     };
-    db.taskOccurrences.set(occurrenceId, occurrence);
-
-    // Credit reward to the ledger internally
-    const { newBalance } = await ledgerService.internalCreditPoints(userId, {
+    const result = await this.store.completeTaskOccurrence(userId, taskId, occurrence, {
       source: 'task',
       seconds: task.rewardSeconds,
-      description: `Completed task: ${task.title} (${req.occurrenceDate})`,
-      idempotencyKey: req.idempotencyKey,
+      description: `Completed task: ${task.title} (${request.occurrenceDate})`,
+      idempotencyKey: request.idempotencyKey,
     });
-
-    return { occurrence, balance: newBalance };
+    return { occurrence: this.toOccurrence(result.occurrence), balance: result.balance };
   }
 }
-
-export const taskService = new TaskService();

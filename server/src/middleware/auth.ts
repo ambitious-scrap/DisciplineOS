@@ -1,22 +1,22 @@
 import type { MiddlewareHandler } from 'hono';
-import { authService } from '../services/authService.js';
 import type { AppEnv } from '../types.js';
+import type { AuthService } from '../services/authService.js';
 
-export const authMiddleware: MiddlewareHandler<AppEnv> = async (c, next) => {
-  const authHeader = c.req.header('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return c.json({ error: 'Unauthorized: Missing or invalid Authorization header' }, 401);
-  }
-
-  const token = authHeader.slice(7).trim();
-  try {
-    const { userId, deviceId } = await authService.verifyToken(token);
-    c.set('userId', userId);
-    if (deviceId) {
-      c.set('deviceId', deviceId);
+export function createAuthMiddleware(authService: AuthService): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const authHeader = c.req.header('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return c.json({ error: 'Unauthorized: Missing or invalid Authorization header' }, 401);
     }
-    await next();
-  } catch (err: any) {
-    return c.json({ error: err.message || 'Unauthorized' }, 401);
-  }
-};
+    const token = authHeader.slice(7).trim();
+    try {
+      const { userId, deviceId } = await authService.verifyToken(token);
+      c.set('userId', userId);
+      if (deviceId) c.set('deviceId', deviceId);
+      await next();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unauthorized';
+      return c.json({ error: message }, 401);
+    }
+  };
+}

@@ -1,12 +1,15 @@
 import { serve } from '@hono/node-server';
-import { app } from './app.js';
+import { createApp } from './app.js';
 import { config } from './config.js';
 import { initPostgresDatabase } from './db/postgres.js';
+import { PostgresStore } from './db/postgresStore.js';
+import { MemoryStore } from './db/memoryStore.js';
 
-console.log(`🚀 DisciplineOS Server starting on port ${config.port}...`);
+const pool = await initPostgresDatabase();
+const store = pool ? new PostgresStore(pool) : new MemoryStore();
+const app = createApp(store);
 
-await initPostgresDatabase();
-
+console.log(`DisciplineOS Server listening on port ${config.port}`);
 serve({
   fetch: app.fetch,
   port: config.port,

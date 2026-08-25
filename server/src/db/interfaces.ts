@@ -70,6 +70,7 @@ export interface TaskOccurrenceRow {
   evidenceSha256?: string | null;
   rewardClaimed: boolean;
   createdAt: string;
+  idempotencyKey: string;
 }
 
 export interface BlockedAppRow {
@@ -113,6 +114,8 @@ export interface ActiveUnlockRow {
   expiresAt: string;
   isEmergency: boolean;
   leaseSignature: string;
+  status: 'active' | 'expired' | 'released' | 'cancelled';
+  idempotencyKey: string;
 }
 
 export interface DeviceReserveRow {
@@ -123,6 +126,7 @@ export interface DeviceReserveRow {
   remainingSeconds: number;
   expiresAt: string;
   createdAt: string;
+  idempotencyKey: string;
 }
 
 export interface OfflineEventRow {

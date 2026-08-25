@@ -10,6 +10,22 @@ jobs:
   server-and-dashboard:
     name: Backend, Shared & Dashboard Verification
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/disciplineos_test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: disciplineos_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d disciplineos_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -26,6 +42,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build shared package
+        run: pnpm --filter @disciplineos/shared build
+
+      - name: Build server
+        run: pnpm --filter @disciplineos/server build
+
       - name: Typecheck & Lint
         run: pnpm lint
 
@@ -34,7 +56,6 @@ jobs:
 
       - name: Build Web Dashboard
         run: pnpm --filter @disciplineos/dashboard build
-
   android:
     name: Android Build & Assemble
     runs-on: ubuntu-latest
