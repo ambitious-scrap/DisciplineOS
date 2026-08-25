@@ -4,32 +4,32 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
-import com.disciplineos.domain.usecase.CheckIsAppBlockedUseCase
-import com.disciplineos.ui.overlay.BlockOverlayActivity
 import com.disciplineos.domain.repository.PolicyRepository
 import com.disciplineos.domain.repository.SessionRepository
-import com.disciplineos.receiver.DisciplineDeviceAdminReceiver
-import kotlinx.coroutines.*
+import com.disciplineos.domain.usecase.CheckIsAppBlockedUseCase
+import com.disciplineos.ui.overlay.BlockOverlayActivity
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 class ForegroundAppDetector(
     private val context: Context,
     private val checkIsAppBlockedUseCase: CheckIsAppBlockedUseCase,
     private val policyRepository: PolicyRepository,
-    private val sessionRepository: SessionRepository
+    private val sessionRepository: SessionRepository,
+    private val enforcementController: EnforcementController,
+    private val protectionStateManager: ProtectionStateManager,
 ) {
     private val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-    private var isRunning = false
     private var lastForegroundPackage: String? = null
-    private val suspendedPackages = mutableSetOf<String>()
 
     fun startMonitoring(scope: CoroutineScope) {
-        if (isRunning) return
-        isRunning = true
-
         scope.launch(Dispatchers.Default) {
             var hardModeTick = 0
-            while (isRunning) {
+            while (isActive) {
                 checkForegroundApp()
                 if (++hardModeTick >= 3) {
                     hardModeTick = 0
@@ -41,19 +41,16 @@ class ForegroundAppDetector(
     }
 
     fun stopMonitoring() {
-        isRunning = false
-        suspendedPackages.clear()
+        lastForegroundPackage = null
     }
 
-    suspend fun checkForegroundApp() {
+    private suspend fun checkForegroundApp() {
         val currentPackage = getForegroundPackageName() ?: return
         if (currentPackage == context.packageName) return
 
         if (currentPackage != lastForegroundPackage) {
             lastForegroundPackage = currentPackage
-
-            val isBlocked = checkIsAppBlockedUseCase(currentPackage)
-            if (isBlocked) {
+            if (checkIsAppBlockedUseCase(currentPackage)) {
                 launchBlockOverlay(currentPackage)
             }
         }
@@ -62,30 +59,22 @@ class ForegroundAppDetector(
     fun onWindowChanged(packageName: String, scope: CoroutineScope) {
         if (packageName == context.packageName) return
         scope.launch(Dispatchers.Default) {
-            val isBlocked = checkIsAppBlockedUseCase(packageName)
-            if (isBlocked) {
+            if (checkIsAppBlockedUseCase(packageName)) {
                 launchBlockOverlay(packageName)
             }
         }
     }
 
     private suspend fun reconcileDeviceOwnerPolicy() {
-        if (!DisciplineDeviceAdminReceiver.isDeviceOwner(context)) return
         val blockedApps = policyRepository.getBlockedAppsFlow().first()
-            .filter { it.isActive && it.packageName != context.packageName }
-        val blockedPackages = blockedApps.map { it.packageName }.toSet()
-        val knownPackages = suspendedPackages.toSet() + blockedPackages
-
-        for (packageName in knownPackages) {
-            val lease = sessionRepository.getActiveLeaseForIdentifier(packageName)
-            val shouldSuspend = packageName in blockedPackages && (lease == null || lease.isExpired)
-            if (shouldSuspend && suspendedPackages.add(packageName)) {
-                DisciplineDeviceAdminReceiver.suspendPackages(context, arrayOf(packageName), true)
-            } else if (!shouldSuspend && suspendedPackages.remove(packageName)) {
-                DisciplineDeviceAdminReceiver.suspendPackages(context, arrayOf(packageName), false)
-            }
-        }
+        val validLeases = sessionRepository.getActiveLeasesFlow().first()
+        enforcementController.reconcile(
+            blockedApps = blockedApps,
+            validLeases = validLeases,
+            protectionState = protectionStateManager.state.value,
+        )
     }
+
     private fun getForegroundPackageName(): String? {
         val time = System.currentTimeMillis()
         val events = usageStatsManager.queryEvents(time - 1000 * 5, time)

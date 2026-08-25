@@ -1,5 +1,6 @@
 import type {
   DevicePlatform,
+  LeasePayload,
   TransactionType,
   TransactionSource,
   EvidenceType,
@@ -8,7 +9,6 @@ import type {
   LocationEventType,
   PolicyChangeAction,
 } from '@disciplineos/shared';
-
 export interface UserRow {
   id: string;
   email: string;
@@ -114,6 +114,9 @@ export interface ActiveUnlockRow {
   expiresAt: string;
   isEmergency: boolean;
   leaseSignature: string;
+  leasePayload?: LeasePayload | null;
+  leaseAlgorithm?: 'Ed25519' | null;
+  leaseKeyId?: string | null;
   status: 'active' | 'expired' | 'released' | 'cancelled';
   idempotencyKey: string;
 }

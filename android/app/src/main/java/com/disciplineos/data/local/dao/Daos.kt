@@ -47,21 +47,54 @@ interface PolicyDao {
 
     @Query("DELETE FROM blocked_sites")
     suspend fun clearSites()
+    @Query("SELECT * FROM policy_metadata WHERE id = 1 LIMIT 1")
+    suspend fun getPolicyMetadata(): PolicyMetadataEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPolicyMetadata(metadata: PolicyMetadataEntity)
+
+    @Transaction
+    suspend fun replacePolicy(
+        apps: List<BlockedAppEntity>,
+        sites: List<BlockedSiteEntity>,
+        metadata: PolicyMetadataEntity,
+    ) {
+        clearApps()
+        clearSites()
+        insertApps(apps)
+        insertSites(sites)
+        insertPolicyMetadata(metadata)
+    }
 }
 
 @Dao
 interface LeaseDao {
-    @Query("SELECT * FROM active_leases WHERE expiresAtEpochMs > :currentTimeMs")
-    fun getActiveLeasesFlow(currentTimeMs: Long): Flow<List<ActiveLeaseEntity>>
+    @Query("SELECT * FROM active_leases WHERE deviceId = :deviceId AND bootId = :bootId AND monotonicDeadlineElapsedRealtime > :currentElapsedRealtime")
+    fun getActiveLeasesFlow(deviceId: String, bootId: Long, currentElapsedRealtime: Long): Flow<List<ActiveLeaseEntity>>
 
-    @Query("SELECT * FROM active_leases WHERE identifier = :identifier AND expiresAtEpochMs > :currentTimeMs LIMIT 1")
-    suspend fun getActiveLeaseForIdentifier(identifier: String, currentTimeMs: Long): ActiveLeaseEntity?
+    @Query("SELECT * FROM active_leases WHERE deviceId = :deviceId AND bootId = :bootId AND type = :type AND identifier = :identifier AND monotonicDeadlineElapsedRealtime > :currentElapsedRealtime LIMIT 1")
+    suspend fun getActiveLeaseForIdentifier(
+        deviceId: String,
+        bootId: Long,
+        type: String,
+        identifier: String,
+        currentElapsedRealtime: Long,
+    ): ActiveLeaseEntity?
+
+    @Query("SELECT MAX(verifiedAtElapsedRealtime) FROM active_leases")
+    suspend fun getMaxVerifiedElapsedRealtime(): Long?
+
+    @Query("DELETE FROM active_leases WHERE bootId != :bootId")
+    suspend fun clearForBoot(bootId: Long)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLease(lease: ActiveLeaseEntity)
 
-    @Query("DELETE FROM active_leases WHERE expiresAtEpochMs <= :currentTimeMs")
-    suspend fun clearExpired(currentTimeMs: Long)
+    @Query("DELETE FROM active_leases WHERE monotonicDeadlineElapsedRealtime <= :currentElapsedRealtime")
+    suspend fun clearExpired(currentElapsedRealtime: Long)
+
+    @Query("DELETE FROM active_leases")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -86,4 +119,16 @@ interface ReserveDao {
 
     @Query("UPDATE offline_spend_outbox SET isReconciled = 1 WHERE eventId IN (:eventIds)")
     suspend fun markReconciled(eventIds: List<String>)
+}
+
+@Dao
+interface ProtectionEventDao {
+    @Query("SELECT * FROM protection_event_outbox ORDER BY occurredAt ASC")
+    suspend fun getPending(): List<ProtectionEventOutboxEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(event: ProtectionEventOutboxEntity)
+
+    @Query("DELETE FROM protection_event_outbox WHERE eventId IN (:eventIds)")
+    suspend fun delete(eventIds: List<String>)
 }

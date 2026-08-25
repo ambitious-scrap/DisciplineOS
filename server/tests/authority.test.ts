@@ -22,6 +22,7 @@ async function registerAndPair(email: string) {
     token: pairData.tokens.accessToken as string,
     userToken: registerData.tokens.accessToken as string,
     refreshToken: registerData.tokens.refreshToken as string,
+    deviceRefreshToken: pairData.tokens.refreshToken as string,
     deviceId: pairData.device.id as string,
   };
 }
@@ -53,6 +54,53 @@ describe('Backend authority invariants', () => {
     const { refreshToken } = await registerAndPair('refresh-rejected@disciplineos.local');
     const response = await app.request('/api/bank/balance', {
       headers: { Authorization: `Bearer ${refreshToken}` },
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it('returns fresh device-scoped credentials from a refresh token', async () => {
+    const { deviceRefreshToken, deviceId } = await registerAndPair('device-refresh@disciplineos.local');
+    const response = await app.request('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: deviceRefreshToken }),
+    });
+    expect(response.status).toBe(200);
+    const data = await response.json();
+    expect(data.tokens.accessToken).toBeDefined();
+    expect(data.tokens.refreshToken).toBeDefined();
+
+    const deviceOperation = await app.request('/api/bank/spend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.tokens.accessToken}` },
+      body: JSON.stringify({
+        seconds: 1,
+        targetType: 'app',
+        targetIdentifier: 'com.example.app',
+        deviceId,
+        idempotencyKey: 'device-refresh-scope',
+      }),
+    });
+    expect(deviceOperation.status).toBe(400);
+  });
+
+  it('rejects an access token at the refresh endpoint', async () => {
+    const { userToken } = await registerAndPair('access-at-refresh@disciplineos.local');
+    const response = await app.request('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: userToken }),
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it('rejects refresh after the device is removed', async () => {
+    const { deviceRefreshToken, deviceId } = await registerAndPair('revoked-device-refresh@disciplineos.local');
+    db.devices.delete(deviceId);
+    const response = await app.request('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: deviceRefreshToken }),
     });
     expect(response.status).toBe(401);
   });

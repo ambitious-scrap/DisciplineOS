@@ -15,6 +15,11 @@ export const LoginUserSchema = z.object({
 });
 export type LoginUserRequest = z.infer<typeof LoginUserSchema>;
 
+export const RefreshTokenSchema = z.object({
+  refreshToken: z.string().min(1),
+});
+export type RefreshTokenRequest = z.infer<typeof RefreshTokenSchema>;
+
 export const PairDeviceSchema = z.object({
   name: z.string().min(1).max(100),
   platform: DevicePlatformSchema,

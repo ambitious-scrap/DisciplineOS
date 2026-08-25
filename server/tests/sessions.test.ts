@@ -1,6 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { createPublicKey, verify } from 'node:crypto';
 import { app } from '../src/app.js';
 import { db } from '../src/db/memoryStore.js';
+
+const leasePublicKey = createPublicKey({
+  key: Buffer.from('MCowBQYDK2VwAyEAJP7DAT1FP0pr7PBUoet0W27gTWvqqZm4BjxFfjhOG8M=', 'base64'),
+  format: 'der',
+  type: 'spki',
+});
 
 describe('Active Sessions & Global Distraction Lock API', () => {
   let token: string;
@@ -8,6 +15,7 @@ describe('Active Sessions & Global Distraction Lock API', () => {
   let tabletToken: string;
   let phoneDeviceId: string;
   let tabletDeviceId: string;
+
   beforeEach(async () => {
     db.clear();
 
@@ -27,6 +35,7 @@ describe('Active Sessions & Global Distraction Lock API', () => {
     const pData = await pPair.json();
     phoneDeviceId = pData.device.id;
     phoneToken = pData.tokens.accessToken;
+
     const tPair = await app.request('/api/auth/pair', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -35,14 +44,13 @@ describe('Active Sessions & Global Distraction Lock API', () => {
     const tData = await tPair.json();
     tabletDeviceId = tData.device.id;
     tabletToken = tData.tokens.accessToken;
-    // Credit 3600s balance via task completion
+
     const taskRes = await app.request('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ title: 'Fund Task', rewardSeconds: 3600, evidenceType: 'focus_timer' }),
     });
     const { task } = await taskRes.json();
-
     await app.request(`/api/tasks/${task.id}/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -54,8 +62,7 @@ describe('Active Sessions & Global Distraction Lock API', () => {
     });
   });
 
-  it('should start an unlock session with HMAC lease signature and enforce global lock', async () => {
-    // 1. Phone starts an unlock session
+  it('starts an Ed25519-signed lease and enforces global lock', async () => {
     const unlockRes = await app.request('/api/sessions/unlock', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${phoneToken}` },
@@ -70,10 +77,29 @@ describe('Active Sessions & Global Distraction Lock API', () => {
 
     expect(unlockRes.status).toBe(201);
     const unlockData = await unlockRes.json();
-    expect(unlockData.session.leaseSignature).toBeDefined();
-    expect(unlockData.session.deviceId).toBe(phoneDeviceId);
+    const lease = unlockData.session.lease;
+    expect(lease.algorithm).toBe('Ed25519');
+    expect(lease.keyId).toBe('server-lease-v1');
+    expect(lease.payload.deviceId).toBe(phoneDeviceId);
+    expect(lease.payload.targetIdentifier).toBe('com.instagram.android');
+    expect(lease.payload.durationSeconds).toBe(600);
+    expect(
+      verify(
+        null,
+        Buffer.from(lease.canonicalPayload),
+        leasePublicKey,
+        Buffer.from(lease.signature, 'base64url'),
+      ),
+    ).toBe(true);
+    expect(
+      verify(
+        null,
+        Buffer.from(lease.canonicalPayload.replace(phoneDeviceId, tabletDeviceId)),
+        leasePublicKey,
+        Buffer.from(lease.signature, 'base64url'),
+      ),
+    ).toBe(false);
 
-    // 2. Tablet attempts to start concurrent unlock -> Must fail due to single global session lock
     const concurrentRes = await app.request('/api/sessions/unlock', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tabletToken}` },
@@ -85,21 +111,15 @@ describe('Active Sessions & Global Distraction Lock API', () => {
         idempotencyKey: 'session-unlock-2',
       }),
     });
-
     expect(concurrentRes.status).toBe(400);
 
-    // 3. Release session from Phone -> Tablet can now unlock
     const relRes = await app.request('/api/sessions/release', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${phoneToken}` },
-      body: JSON.stringify({
-        sessionId: unlockData.session.id,
-        deviceId: phoneDeviceId,
-      }),
+      body: JSON.stringify({ sessionId: unlockData.session.id, deviceId: phoneDeviceId }),
     });
     expect(relRes.status).toBe(200);
 
-    // Now tablet can unlock
     const tabletUnlock = await app.request('/api/sessions/unlock', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tabletToken}` },

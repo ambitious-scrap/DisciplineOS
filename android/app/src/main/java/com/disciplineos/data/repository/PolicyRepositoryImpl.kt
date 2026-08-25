@@ -3,9 +3,13 @@ package com.disciplineos.data.repository
 import com.disciplineos.data.local.dao.PolicyDao
 import com.disciplineos.data.local.entity.BlockedAppEntity
 import com.disciplineos.data.local.entity.BlockedSiteEntity
+import com.disciplineos.data.local.entity.PolicyMetadataEntity
 import com.disciplineos.data.remote.DisciplineApiService
+import com.disciplineos.data.remote.dto.CreateBlockedAppRequestDto
+import com.disciplineos.data.remote.dto.CreateBlockedSiteRequestDto
 import com.disciplineos.domain.model.BlockedApp
 import com.disciplineos.domain.model.BlockedSite
+import com.disciplineos.domain.model.PolicyCacheMetadata
 import com.disciplineos.domain.repository.PolicyRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -13,7 +17,7 @@ import kotlinx.coroutines.flow.map
 class PolicyRepositoryImpl(
     private val policyDao: PolicyDao,
     private val apiService: DisciplineApiService,
-    private val tokenProvider: () -> String?
+    private val tokenProvider: () -> String?,
 ) : PolicyRepository {
 
     override fun getBlockedAppsFlow(): Flow<List<BlockedApp>> {
@@ -23,7 +27,7 @@ class PolicyRepositoryImpl(
                     id = it.id,
                     packageName = it.packageName,
                     displayName = it.displayName,
-                    isActive = it.isActive
+                    isActive = it.isActive,
                 )
             }
         }
@@ -35,65 +39,62 @@ class PolicyRepositoryImpl(
                 BlockedSite(
                     id = it.id,
                     domain = it.domain,
-                    isActive = it.isActive
+                    isActive = it.isActive,
                 )
             }
         }
     }
 
-    override suspend fun isAppBlocked(packageName: String): Boolean {
-        return policyDao.isAppBlocked(packageName)
-    }
+    override suspend fun isAppBlocked(packageName: String): Boolean = policyDao.isAppBlocked(packageName)
 
-    override suspend fun isDomainBlocked(domain: String): Boolean {
-        return policyDao.isDomainBlocked(domain)
+    override suspend fun isDomainBlocked(domain: String): Boolean = policyDao.isDomainBlocked(domain)
+
+    override suspend fun getPolicyMetadata(): PolicyCacheMetadata {
+        val metadata = policyDao.getPolicyMetadata()
+        return PolicyCacheMetadata(metadata?.revision ?: 0, metadata?.syncedAtEpochMs)
     }
 
     override suspend fun syncPolicy(): Result<Unit> {
         val token = tokenProvider() ?: return Result.failure(IllegalStateException("Not authenticated"))
-        return try {
+        return runCatching {
             val response = apiService.getPolicy("Bearer $token")
-            if (response.isSuccessful && response.body() != null) {
-                val profile = response.body()!!
-
-                val appEntities = profile.blockedApps.map {
-                    BlockedAppEntity(
-                        id = it.id,
-                        packageName = it.identifier,
-                        displayName = it.displayName,
-                        isActive = it.isActive
-                    )
-                }
-
-                val siteEntities = profile.blockedSites.map {
-                    BlockedSiteEntity(
-                        id = it.id,
-                        domain = it.domain,
-                        isActive = it.isActive
-                    )
-                }
-
-                policyDao.clearApps()
-                policyDao.insertApps(appEntities)
-                policyDao.clearSites()
-                policyDao.insertSites(siteEntities)
-
-                Result.success(Unit)
-            } else {
-                Result.failure(Exception("Failed to fetch policy: ${response.code()} ${response.message()}"))
+            val profile = response.body() ?: error("Failed to fetch policy: ${response.code()} ${response.message()}")
+            val current = getPolicyMetadata()
+            require(profile.version >= current.revision) {
+                "Refusing stale policy revision ${profile.version}; cached revision is ${current.revision}"
             }
-        } catch (e: Exception) {
-            Result.failure(e)
+
+            val appEntities = profile.blockedApps.map {
+                BlockedAppEntity(
+                    id = it.id,
+                    packageName = it.identifier,
+                    displayName = it.displayName,
+                    isActive = it.isActive,
+                )
+            }
+            val siteEntities = profile.blockedSites.map {
+                BlockedSiteEntity(
+                    id = it.id,
+                    domain = it.domain,
+                    isActive = it.isActive,
+                )
+            }
+            policyDao.replacePolicy(
+                apps = appEntities,
+                sites = siteEntities,
+                metadata = PolicyMetadataEntity(
+                    revision = profile.version,
+                    syncedAtEpochMs = System.currentTimeMillis(),
+                ),
+            )
         }
     }
+
     override suspend fun addApp(packageName: String, displayName: String): Result<Unit> {
         return requestPolicyMutation { token ->
             apiService.addBlockedApp(
                 "Bearer $token",
-                com.disciplineos.data.remote.dto.CreateBlockedAppRequestDto(
-                    identifier = packageName,
-                    displayName = displayName
-                )
+                CreateBlockedAppRequestDto(identifier = packageName, displayName = displayName),
             )
         }
     }
@@ -102,7 +103,7 @@ class PolicyRepositoryImpl(
         return requestPolicyMutation { token ->
             apiService.addBlockedSite(
                 "Bearer $token",
-                com.disciplineos.data.remote.dto.CreateBlockedSiteRequestDto(domain)
+                CreateBlockedSiteRequestDto(domain),
             )
         }
     }
@@ -116,18 +117,13 @@ class PolicyRepositoryImpl(
     }
 
     private suspend fun requestPolicyMutation(
-        request: suspend (token: String) -> retrofit2.Response<*>
+        request: suspend (token: String) -> retrofit2.Response<*>,
     ): Result<Unit> {
         val token = tokenProvider() ?: return Result.failure(IllegalStateException("Not authenticated"))
-        return try {
+        return runCatching {
             val response = request(token)
-            if (response.isSuccessful) {
-                Result.success(Unit)
-            } else {
-                Result.failure(Exception("Policy removal request failed: ${response.code()} ${response.message()}"))
-            }
-        } catch (e: Exception) {
-            Result.failure(e)
+            check(response.isSuccessful) { "Policy mutation failed: ${response.code()} ${response.message()}" }
+            syncPolicy().getOrThrow()
         }
     }
 }

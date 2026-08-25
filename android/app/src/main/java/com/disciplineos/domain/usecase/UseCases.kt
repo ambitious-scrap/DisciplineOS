@@ -9,18 +9,16 @@ class CheckIsAppBlockedUseCase(
     private val sessionRepository: SessionRepository
 ) {
     suspend operator fun invoke(packageName: String): Boolean {
-        // 1. If not in blocked apps list, allow
         if (!policyRepository.isAppBlocked(packageName)) {
             return false
         }
 
-        // 2. If blocked, check if there is an active unexpired lease
-        val lease = sessionRepository.getActiveLeaseForIdentifier(packageName)
+        val lease = sessionRepository.getActiveLeaseForIdentifier(packageName, "app")
         if (lease != null && !lease.isExpired) {
-            return false // Unlocked by lease
+            return false
         }
 
-        return true // Blocked!
+        return true
     }
 }
 
@@ -33,7 +31,7 @@ class CheckIsDomainBlockedUseCase(
             return false
         }
 
-        val lease = sessionRepository.getActiveLeaseForIdentifier(domain)
+        val lease = sessionRepository.getActiveLeaseForIdentifier(domain, "site")
         if (lease != null && !lease.isExpired) {
             return false
         }

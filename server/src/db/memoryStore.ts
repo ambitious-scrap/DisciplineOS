@@ -40,6 +40,7 @@ export class MemoryStore implements DisciplineStore {
   blockedApps = new Map<string, BlockedAppRow>();
   blockedSites = new Map<string, BlockedSiteRow>();
   pendingPolicyChanges = new Map<string, PendingPolicyChangeRow>();
+  policyRevisions = new Map<string, number>();
   activeUnlocks = new Map<string, ActiveUnlockRow>();
   deviceReserves = new Map<string, DeviceReserveRow>();
   offlineEvents = new Map<string, OfflineEventRow>();
@@ -59,8 +60,8 @@ export class MemoryStore implements DisciplineStore {
     this.blockedApps.clear();
     this.blockedSites.clear();
     this.pendingPolicyChanges.clear();
+    this.policyRevisions.clear();
     this.activeUnlocks.clear();
-    this.deviceReserves.clear();
     this.offlineEvents.clear();
     this.protectionEvents = [];
     this.locationEvents = [];
@@ -137,6 +138,12 @@ export class MemoryStore implements DisciplineStore {
     }
   }
 
+  private bumpPolicyRevision(userId: string): number {
+    const revision = (this.policyRevisions.get(userId) ?? 0) + 1;
+    this.policyRevisions.set(userId, revision);
+    return revision;
+  }
+
   private insertTransaction(transaction: TransactionRow): void {
     if (
       transaction.idempotencyKey &&
@@ -154,6 +161,7 @@ export class MemoryStore implements DisciplineStore {
       }
       this.users.set(user.id, user);
       this.timeBanks.set(timeBank.userId, timeBank);
+      this.policyRevisions.set(user.id, 0);
     });
   }
 
@@ -328,6 +336,9 @@ export class MemoryStore implements DisciplineStore {
         expiresAt: input.expiresAt,
         isEmergency: input.isEmergency,
         leaseSignature: input.leaseSignature,
+        leasePayload: input.leasePayload,
+        leaseAlgorithm: input.leaseAlgorithm,
+        leaseKeyId: input.leaseKeyId,
         status: 'active',
         idempotencyKey: input.idempotencyKey,
       };
@@ -433,7 +444,7 @@ export class MemoryStore implements DisciplineStore {
       (site) => site.userId === userId && site.isActive,
     );
     return {
-      version: blockedApps.length + blockedSites.length + 1,
+      version: this.policyRevisions.get(userId) ?? 0,
       updatedAt: new Date().toISOString(),
       blockedApps,
       blockedSites,
@@ -443,6 +454,7 @@ export class MemoryStore implements DisciplineStore {
   private async applyPendingChanges(userId: string): Promise<void> {
     await this.exclusive(() => {
       const now = new Date().toISOString();
+      let changed = false;
       for (const change of this.pendingPolicyChanges.values()) {
         if (
           change.userId !== userId ||
@@ -461,7 +473,9 @@ export class MemoryStore implements DisciplineStore {
           if (site) site.isActive = false;
         }
         change.isExecuted = true;
+        changed = true;
       }
+      if (changed) this.bumpPolicyRevision(userId);
     });
   }
 
@@ -481,9 +495,11 @@ export class MemoryStore implements DisciplineStore {
             change.isCancelled = true;
           }
         }
+        this.bumpPolicyRevision(app.userId);
         return existing;
       }
       this.blockedApps.set(app.id, app);
+      this.bumpPolicyRevision(app.userId);
       return app;
     });
   }
@@ -500,9 +516,11 @@ export class MemoryStore implements DisciplineStore {
             change.isCancelled = true;
           }
         }
+        this.bumpPolicyRevision(site.userId);
         return existing;
       }
       this.blockedSites.set(site.id, site);
+      this.bumpPolicyRevision(site.userId);
       return site;
     });
   }

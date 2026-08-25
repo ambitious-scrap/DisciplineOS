@@ -80,7 +80,7 @@ class DisciplineVpnService : VpnService() {
                             val dnsPayload = packet.copyOfRange(dnsOffset, length)
                             val domain = extractDomainFromDnsQuery(dnsPayload) ?: continue
                             val isBlocked = app?.policyRepository?.isDomainBlocked(domain) ?: false
-                            val activeLease = app?.sessionRepository?.getActiveLeaseForIdentifier(domain)
+                            val activeLease = app?.sessionRepository?.getActiveLeaseForIdentifier(domain, "site")
                             val responseDns = if (isBlocked && activeLease == null) {
                                 Log.w(TAG, "Blocked DNS query for domain: $domain")
                                 createNxDomainDnsPayload(dnsPayload)

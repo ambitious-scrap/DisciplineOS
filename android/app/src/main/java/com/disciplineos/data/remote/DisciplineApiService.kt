@@ -10,6 +10,11 @@ interface DisciplineApiService {
         @Body request: LoginRequestDto
     ): Response<AuthResponseDto>
 
+    @POST("/api/auth/refresh")
+    suspend fun refresh(
+        @Body request: RefreshTokenRequestDto
+    ): Response<RefreshResponseDto>
+
     @POST("/api/auth/pair")
     suspend fun pairDevice(
         @Header("Authorization") token: String,
@@ -72,6 +77,12 @@ interface DisciplineApiService {
         @Header("Authorization") token: String,
         @Body request: ReconcileReservesRequestDto
     ): Response<ReconcileReservesResponseDto>
+
+    @POST("/api/events/protection")
+    suspend fun reportProtectionEvent(
+        @Header("Authorization") token: String,
+        @Body request: ReportProtectionEventRequestDto,
+    ): Response<Unit>
 
     @POST("/api/tasks/{id}/complete")
     suspend fun completeTask(

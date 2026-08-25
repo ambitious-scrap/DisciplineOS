@@ -2,9 +2,7 @@ package com.disciplineos.data.repository
 
 import com.disciplineos.data.local.dao.LeaseDao
 import com.disciplineos.data.local.dao.ReserveDao
-import com.disciplineos.data.local.entity.ActiveLeaseEntity
 import com.disciplineos.data.local.entity.DeviceReserveEntity
-import com.disciplineos.data.local.entity.OfflineSpendEntity
 import com.disciplineos.data.remote.DisciplineApiService
 import com.disciplineos.data.remote.dto.AllocateReserveRequestDto
 import com.disciplineos.data.remote.dto.OfflineSpendEventDto
@@ -14,6 +12,7 @@ import com.disciplineos.domain.model.DeviceReserve
 import com.disciplineos.domain.repository.ReserveRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import com.disciplineos.enforcement.OfflineUnlockPolicy
 import java.util.UUID
 
 class ReserveRepositoryImpl(
@@ -85,54 +84,8 @@ class ReserveRepositoryImpl(
         seconds: Int,
         isEmergency: Boolean
     ): Result<ActiveLease> {
-        val activeReserve = reserveDao.getActiveReserve(System.currentTimeMillis())
-            ?: return Result.failure(IllegalStateException("No active offline reserve available"))
-
-        if (activeReserve.remainingSeconds < seconds) {
-            return Result.failure(IllegalStateException("Insufficient offline reserve balance. Remaining: ${activeReserve.remainingSeconds}s"))
-        }
-
-        // 1. Deduct from local reserve
-        reserveDao.deductFromReserve(activeReserve.id, seconds)
-
-        // 2. Append event to outbox
-        val eventId = UUID.randomUUID().toString()
-        val now = System.currentTimeMillis()
-        reserveDao.insertOfflineSpend(
-            OfflineSpendEntity(
-                eventId = eventId,
-                targetType = targetType,
-                targetIdentifier = targetIdentifier,
-                secondsSpent = seconds,
-                timestamp = now,
-                isEmergency = isEmergency,
-                isReconciled = false
-            )
-        )
-
-        // 3. Issue local lease
-        val lease = ActiveLease(
-            id = eventId,
-            identifier = targetIdentifier,
-            type = targetType,
-            expiresAtEpochMs = now + seconds * 1000L,
-            isEmergency = isEmergency,
-            leaseSignature = "sig-offline-reserve-$eventId"
-        )
-        leaseDao.insertLease(
-            ActiveLeaseEntity(
-                id = lease.id,
-                identifier = lease.identifier,
-                type = lease.type,
-                expiresAtEpochMs = lease.expiresAtEpochMs,
-                isEmergency = lease.isEmergency,
-                leaseSignature = lease.leaseSignature
-            )
-        )
-
-        return Result.success(lease)
+        return OfflineUnlockPolicy.reject()
     }
-
     override suspend fun reconcileOutbox(): Result<Unit> {
         val token = tokenProvider() ?: return Result.failure(IllegalStateException("Not authenticated"))
         val pending = reserveDao.getPendingOutbox()

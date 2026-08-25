@@ -1,4 +1,5 @@
 import type {
+  LeasePayload,
   PolicyChangeAction,
   PolicyProfile,
   ReconcileReservesRequest,
@@ -51,6 +52,9 @@ export interface UnlockSessionInput {
   expiresAt: string;
   isEmergency: boolean;
   leaseSignature: string;
+  leasePayload: LeasePayload;
+  leaseAlgorithm: 'Ed25519';
+  leaseKeyId: string;
   idempotencyKey: string;
   costSeconds: number;
   ledgerSource?: 'usage' | 'emergency';

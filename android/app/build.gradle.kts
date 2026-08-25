@@ -5,6 +5,13 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+val leasePublicKey = providers.environmentVariable("DISCIPLINEOS_LEASE_PUBLIC_KEY_BASE64")
+    .orElse("JP7DAT1FP0pr7PBUoet0W27gTWvqqZm4BjxFfjhOG8M=")
+    .get()
+val leaseKeyId = providers.environmentVariable("DISCIPLINEOS_LEASE_KEY_ID")
+    .orElse("server-lease-v1")
+    .get()
+
 android {
     namespace = "com.disciplineos"
     compileSdk = 35
@@ -15,6 +22,8 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "LEASE_PUBLIC_KEY_BASE64", "\"$leasePublicKey\"")
+        buildConfigField("String", "LEASE_KEY_ID", "\"$leaseKeyId\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -37,6 +46,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -67,7 +77,11 @@ dependencies {
     // Networking
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
+
+    implementation(libs.bouncycastle)
     implementation(libs.okhttp.logging)
 
     debugImplementation(libs.androidx.ui.tooling)
+
+    testImplementation(libs.junit)
 }

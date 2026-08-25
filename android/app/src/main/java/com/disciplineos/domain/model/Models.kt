@@ -1,5 +1,7 @@
 package com.disciplineos.domain.model
 
+import android.os.SystemClock
+
 data class BlockedApp(
     val id: String,
     val packageName: String,
@@ -15,15 +17,30 @@ data class BlockedSite(
 
 data class ActiveLease(
     val id: String,
+    val deviceId: String,
     val identifier: String, // package name or domain
     val type: String, // "app" or "site"
     val expiresAtEpochMs: Long,
     val isEmergency: Boolean,
-    val leaseSignature: String
+    val leaseSignature: String,
+    val canonicalPayload: String,
+    val keyId: String,
+    val policyVersion: Int,
+    val verifiedAtElapsedRealtime: Long,
+    val monotonicDeadlineElapsedRealtime: Long,
 ) {
     val isExpired: Boolean
-        get() = System.currentTimeMillis() >= expiresAtEpochMs
+        get() = isExpiredAt(SystemClock.elapsedRealtime())
+
+    fun isExpiredAt(elapsedRealtime: Long): Boolean {
+        return elapsedRealtime >= monotonicDeadlineElapsedRealtime
+    }
 }
+
+data class PolicyCacheMetadata(
+    val revision: Int,
+    val syncedAtEpochMs: Long?,
+)
 
 data class TimeBank(
     val balanceSeconds: Int,

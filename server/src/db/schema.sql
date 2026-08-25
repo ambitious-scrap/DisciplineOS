@@ -115,6 +115,12 @@ CREATE TABLE IF NOT EXISTS blocked_sites (
 
 CREATE INDEX IF NOT EXISTS idx_blocked_sites_user_active ON blocked_sites(user_id, is_active);
 
+CREATE TABLE IF NOT EXISTS policy_revisions (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    revision BIGINT NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS pending_policy_changes (
     id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -146,11 +152,18 @@ CREATE TABLE IF NOT EXISTS active_unlocks (
     expires_at TIMESTAMPTZ NOT NULL,
     is_emergency BOOLEAN NOT NULL DEFAULT FALSE,
     lease_signature TEXT NOT NULL,
+    lease_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    lease_algorithm TEXT NOT NULL DEFAULT 'Ed25519',
+    lease_key_id TEXT NOT NULL DEFAULT 'server-lease-v1',
     status TEXT NOT NULL DEFAULT 'active'
       CHECK (status IN ('active', 'expired', 'released', 'cancelled')),
     idempotency_key TEXT NOT NULL,
     CONSTRAINT uq_unlock_idempotency UNIQUE(user_id, idempotency_key)
 );
+
+ALTER TABLE active_unlocks ADD COLUMN IF NOT EXISTS lease_payload JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE active_unlocks ADD COLUMN IF NOT EXISTS lease_algorithm TEXT NOT NULL DEFAULT 'Ed25519';
+ALTER TABLE active_unlocks ADD COLUMN IF NOT EXISTS lease_key_id TEXT NOT NULL DEFAULT 'server-lease-v1';
 
 CREATE INDEX IF NOT EXISTS idx_unlocks_user_status ON active_unlocks(user_id, status);
 

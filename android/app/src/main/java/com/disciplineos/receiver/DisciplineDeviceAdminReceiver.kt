@@ -52,13 +52,13 @@ class DisciplineDeviceAdminReceiver : DeviceAdminReceiver() {
             val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
             val admin = getComponentName(context)
             return try {
-                if (dpm.isDeviceOwnerApp(context.packageName)) {
-                    val result = dpm.setPackagesSuspended(admin, packageNames, suspended)
-                    Log.i(TAG, "Suspended packages (${packageNames.joinToString()}): $suspended -> result: ${result?.joinToString()}")
-                    true
-                } else {
+                if (!dpm.isDeviceOwnerApp(context.packageName)) {
                     Log.w(TAG, "Cannot suspend packages: app is not Device Owner")
                     false
+                } else {
+                    val failed = dpm.setPackagesSuspended(admin, packageNames, suspended)
+                    Log.i(TAG, "Suspended packages (${packageNames.joinToString()}): $suspended -> failed: ${failed?.joinToString()}")
+                    failed.isNullOrEmpty()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error suspending packages", e)

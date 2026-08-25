@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { Pool, PoolClient } from 'pg';
 import type {
   DevicePlatform,
+  LeasePayload,
   LocationEventType,
   PolicyChangeAction,
   ReconcileReservesRequest,
@@ -70,6 +71,11 @@ function iso(value: unknown): string {
 
 function nullableIso(value: unknown): string | null {
   return value === null || value === undefined ? null : iso(value);
+}
+
+function leasePayloadValue(row: DbRow): LeasePayload | null {
+  const value = row.lease_payload;
+  return value && typeof value === 'object' ? value as LeasePayload : null;
 }
 
 export class PostgresStore implements DisciplineStore {
@@ -227,6 +233,9 @@ export class PostgresStore implements DisciplineStore {
       expiresAt: iso(row.expires_at),
       isEmergency: booleanValue(row, 'is_emergency'),
       leaseSignature: text(row, 'lease_signature'),
+      leasePayload: leasePayloadValue(row),
+      leaseAlgorithm: optionalText(row, 'lease_algorithm') as 'Ed25519' | null,
+      leaseKeyId: optionalText(row, 'lease_key_id'),
       status: text(row, 'status') as ActiveUnlockRow['status'],
       idempotencyKey: text(row, 'idempotency_key'),
     };
@@ -302,6 +311,33 @@ export class PostgresStore implements DisciplineStore {
     return Math.max(0, bankBalance - numberValue(rows[0], 'reserved_seconds'));
   }
 
+  private async bumpPolicyRevision(client: Queryable, userId: string): Promise<number> {
+    const rows = await this.queryOn(
+      client,
+      `INSERT INTO policy_revisions (user_id, revision, updated_at)
+       VALUES ($1, 1, NOW())
+       ON CONFLICT (user_id)
+       DO UPDATE SET revision = policy_revisions.revision + 1, updated_at = NOW()
+       RETURNING revision`,
+      [userId],
+    );
+    return numberValue(rows[0], 'revision');
+  }
+
+  private async ensurePolicyRevision(userId: string): Promise<number> {
+    await this.query(
+      `INSERT INTO policy_revisions (user_id, revision)
+       VALUES ($1, 0)
+       ON CONFLICT (user_id) DO NOTHING`,
+      [userId],
+    );
+    const rows = await this.query(
+      `SELECT revision FROM policy_revisions WHERE user_id = $1`,
+      [userId],
+    );
+    return numberValue(rows[0], 'revision');
+  }
+
   async registerUser(user: UserRow, timeBank: TimeBankRow): Promise<void> {
     await this.transaction(async (client) => {
       await client.query(
@@ -313,6 +349,11 @@ export class PostgresStore implements DisciplineStore {
         `INSERT INTO time_banks (user_id, balance_seconds, max_seconds, last_decay_at, updated_at)
          VALUES ($1, $2, $3, $4, $5)`,
         [timeBank.userId, timeBank.balanceSeconds, timeBank.maxSeconds, timeBank.lastDecayAt, timeBank.updatedAt],
+      );
+      await client.query(
+        `INSERT INTO policy_revisions (user_id, revision) VALUES ($1, 0)
+         ON CONFLICT (user_id) DO NOTHING`,
+        [user.id],
       );
     });
   }
@@ -471,7 +512,7 @@ export class PostgresStore implements DisciplineStore {
       const replayRows = await this.queryOn(
         client,
         `SELECT id, user_id, device_id, unlock_type, identifier, duration_seconds, started_at, expires_at,
-                is_emergency, lease_signature, status, idempotency_key
+                is_emergency, lease_signature, lease_payload, lease_algorithm, lease_key_id, status, idempotency_key
            FROM active_unlocks WHERE user_id = $1 AND idempotency_key = $2`,
         [input.userId, input.idempotencyKey],
       );
@@ -498,7 +539,7 @@ export class PostgresStore implements DisciplineStore {
       const activeRows = await this.queryOn(
         client,
         `SELECT id, user_id, device_id, unlock_type, identifier, duration_seconds, started_at, expires_at,
-                is_emergency, lease_signature, status, idempotency_key
+                is_emergency, lease_signature, lease_payload, lease_algorithm, lease_key_id, status, idempotency_key
            FROM active_unlocks WHERE user_id = $1 AND status = 'active'`,
         [input.userId],
       );
@@ -541,11 +582,11 @@ export class PostgresStore implements DisciplineStore {
         client,
         `INSERT INTO active_unlocks
            (id, user_id, device_id, unlock_type, identifier, duration_seconds, started_at, expires_at,
-            is_emergency, lease_signature, status, idempotency_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'active', $11)
+            is_emergency, lease_signature, lease_payload, lease_algorithm, lease_key_id, status, idempotency_key)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'active', $14)
          RETURNING id, user_id, device_id, unlock_type, identifier, duration_seconds, started_at, expires_at,
-                   is_emergency, lease_signature, status, idempotency_key`,
-        [input.id, input.userId, input.deviceId, input.unlockType, input.identifier, input.durationSeconds, input.startedAt, input.expiresAt, input.isEmergency, input.leaseSignature, input.idempotencyKey],
+                   is_emergency, lease_signature, lease_payload, lease_algorithm, lease_key_id, status, idempotency_key`,
+        [input.id, input.userId, input.deviceId, input.unlockType, input.identifier, input.durationSeconds, input.startedAt, input.expiresAt, input.isEmergency, input.leaseSignature, JSON.stringify(input.leasePayload), input.leaseAlgorithm, input.leaseKeyId, input.idempotencyKey],
       );
       return this.mapUnlock(rows[0]);
     });
@@ -561,7 +602,7 @@ export class PostgresStore implements DisciplineStore {
       const rows = await this.queryOn(
         client,
         `SELECT id, user_id, device_id, unlock_type, identifier, duration_seconds, started_at, expires_at,
-                is_emergency, lease_signature, status, idempotency_key
+                is_emergency, lease_signature, lease_payload, lease_algorithm, lease_key_id, status, idempotency_key
            FROM active_unlocks WHERE user_id = $1 AND status = 'active'`,
         [userId],
       );
@@ -574,7 +615,7 @@ export class PostgresStore implements DisciplineStore {
       const rows = await this.queryOn(
         client,
         `SELECT id, user_id, device_id, unlock_type, identifier, duration_seconds, started_at, expires_at,
-                is_emergency, lease_signature, status, idempotency_key
+                is_emergency, lease_signature, lease_payload, lease_algorithm, lease_key_id, status, idempotency_key
            FROM active_unlocks WHERE id = $1 FOR UPDATE`,
         [sessionId],
       );
@@ -715,12 +756,12 @@ export class PostgresStore implements DisciplineStore {
         }
         await client.query(`UPDATE pending_policy_changes SET is_executed = TRUE WHERE id = $1`, [change.id]);
       }
+      if (rows.length > 0) await this.bumpPolicyRevision(client, userId);
     });
   }
-
   async getPolicy(userId: string) {
     await this.applyPendingChanges(userId);
-    const [appRows, siteRows] = await Promise.all([
+    const [appRows, siteRows, revision] = await Promise.all([
       this.query(
         `SELECT id, user_id, platform, identifier, display_name, is_active, created_at
            FROM blocked_apps WHERE user_id = $1 AND is_active = TRUE ORDER BY created_at ASC`,
@@ -731,11 +772,12 @@ export class PostgresStore implements DisciplineStore {
            FROM blocked_sites WHERE user_id = $1 AND is_active = TRUE ORDER BY created_at ASC`,
         [userId],
       ),
+      this.ensurePolicyRevision(userId),
     ]);
     const blockedApps = appRows.map((row) => this.mapBlockedApp(row));
     const blockedSites = siteRows.map((row) => this.mapBlockedSite(row));
     return {
-      version: blockedApps.length + blockedSites.length + 1,
+      version: revision,
       updatedAt: new Date().toISOString(),
       blockedApps,
       blockedSites,
@@ -758,6 +800,7 @@ export class PostgresStore implements DisciplineStore {
           WHERE user_id = $1 AND target_id = $2 AND is_cancelled = FALSE AND is_executed = FALSE`,
         [app.userId, text(rows[0], 'id')],
       );
+      await this.bumpPolicyRevision(client, app.userId);
       return this.mapBlockedApp(rows[0]);
     });
   }
@@ -778,6 +821,7 @@ export class PostgresStore implements DisciplineStore {
           WHERE user_id = $1 AND target_id = $2 AND is_cancelled = FALSE AND is_executed = FALSE`,
         [site.userId, text(rows[0], 'id')],
       );
+      await this.bumpPolicyRevision(client, site.userId);
       return this.mapBlockedSite(rows[0]);
     });
   }

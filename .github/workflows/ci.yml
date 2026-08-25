@@ -74,6 +74,10 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x android/gradlew
 
+      - name: Run Android unit tests
+        working-directory: android
+        run: ./gradlew testDebugUnitTest --no-daemon
+
       - name: Assemble Debug APK
         working-directory: android
         run: ./gradlew assembleDebug --no-daemon

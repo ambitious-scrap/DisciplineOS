@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { RegisterUserSchema, LoginUserSchema, PairDeviceSchema } from '@disciplineos/shared';
+import { LoginUserSchema, PairDeviceSchema, RefreshTokenSchema, RegisterUserSchema } from '@disciplineos/shared';
 import { createAuthMiddleware } from '../middleware/auth.js';
 import type { AppEnv } from '../types.js';
 import type { Services } from '../services/index.js';
@@ -26,6 +26,17 @@ export function createAuthRoutes(services: Services) {
       return c.json(result, 200);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Invalid email or password';
+      return c.json({ error: message }, 401);
+    }
+  });
+
+  routes.post('/refresh', async (c) => {
+    try {
+      const validated = RefreshTokenSchema.parse(await c.req.json());
+      const tokens = await services.auth.refreshToken(validated.refreshToken);
+      return c.json({ tokens }, 200);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid refresh token';
       return c.json({ error: message }, 401);
     }
   });

@@ -9,6 +9,7 @@ interface PolicyRepository {
     suspend fun isAppBlocked(packageName: String): Boolean
     suspend fun isDomainBlocked(domain: String): Boolean
     suspend fun syncPolicy(): Result<Unit>
+    suspend fun getPolicyMetadata(): PolicyCacheMetadata
     suspend fun addApp(packageName: String, displayName: String): Result<Unit>
     suspend fun addSite(domain: String): Result<Unit>
     suspend fun requestRemoveApp(id: String): Result<Unit>
@@ -17,7 +18,7 @@ interface PolicyRepository {
 
 interface SessionRepository {
     fun getActiveLeasesFlow(): Flow<List<ActiveLease>>
-    suspend fun getActiveLeaseForIdentifier(identifier: String): ActiveLease?
+    suspend fun getActiveLeaseForIdentifier(identifier: String, type: String): ActiveLease?
     suspend fun requestUnlock(identifier: String, type: String, seconds: Int): Result<ActiveLease>
     suspend fun requestEmergencyUnlock(identifier: String, type: String, seconds: Int): Result<ActiveLease>
     suspend fun saveLease(lease: ActiveLease)

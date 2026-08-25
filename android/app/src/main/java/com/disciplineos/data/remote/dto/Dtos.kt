@@ -18,6 +18,14 @@ data class TokensDto(
     @SerializedName("refreshToken") val refreshToken: String,
     @SerializedName("expiresInSeconds") val expiresInSeconds: Int
 )
+
+data class RefreshTokenRequestDto(
+    @SerializedName("refreshToken") val refreshToken: String
+)
+
+data class RefreshResponseDto(
+    @SerializedName("tokens") val tokens: TokensDto
+)
 data class LoginRequestDto(
     @SerializedName("email") val email: String,
     @SerializedName("password") val password: String
@@ -43,6 +51,13 @@ data class DeviceDto(
     @SerializedName("lastSeenAt") val lastSeenAt: String,
     @SerializedName("isEnforced") val isEnforced: Boolean,
     @SerializedName("createdAt") val createdAt: String
+)
+
+data class ReportProtectionEventRequestDto(
+    @SerializedName("deviceId") val deviceId: String,
+    @SerializedName("eventType") val eventType: String,
+    @SerializedName("details") val details: Map<String, Any> = emptyMap(),
+    @SerializedName("occurredAt") val occurredAt: String,
 )
 
 data class TimeBankDto(
@@ -110,7 +125,30 @@ data class BlockedSiteDto(
     @SerializedName("userId") val userId: String,
     @SerializedName("domain") val domain: String,
     @SerializedName("isActive") val isActive: Boolean,
-    @SerializedName("createdAt") val createdAt: String
+    @SerializedName("createdAt") val createdAt: String,
+)
+
+data class LeasePayloadDto(
+    @SerializedName("version") val version: Int,
+    @SerializedName("leaseId") val leaseId: String,
+    @SerializedName("userId") val userId: String,
+    @SerializedName("deviceId") val deviceId: String,
+    @SerializedName("targetType") val targetType: String,
+    @SerializedName("targetIdentifier") val targetIdentifier: String,
+    @SerializedName("issuedAt") val issuedAt: String,
+    @SerializedName("expiresAt") val expiresAt: String,
+    @SerializedName("durationSeconds") val durationSeconds: Int,
+    @SerializedName("isEmergency") val isEmergency: Boolean,
+    @SerializedName("policyVersion") val policyVersion: Int,
+    @SerializedName("nonce") val nonce: String,
+)
+
+data class SignedLeaseDto(
+    @SerializedName("payload") val payload: LeasePayloadDto,
+    @SerializedName("canonicalPayload") val canonicalPayload: String,
+    @SerializedName("signature") val signature: String,
+    @SerializedName("algorithm") val algorithm: String,
+    @SerializedName("keyId") val keyId: String,
 )
 
 data class ActiveUnlockSessionDto(
@@ -123,7 +161,8 @@ data class ActiveUnlockSessionDto(
     @SerializedName("startedAt") val startedAt: String,
     @SerializedName("expiresAt") val expiresAt: String,
     @SerializedName("isEmergency") val isEmergency: Boolean,
-    @SerializedName("leaseSignature") val leaseSignature: String
+    @SerializedName("leaseSignature") val leaseSignature: String,
+    @SerializedName("lease") val lease: SignedLeaseDto?,
 )
 
 data class SessionResponseDto(
